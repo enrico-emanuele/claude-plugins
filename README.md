@@ -2,7 +2,7 @@
 
 **English** · [Italiano](README.it.md)
 
-Claude Code plugins from the Logix team.
+Claude Code plugins by Enrico Emanuele.
 
 | Plugin | What it does |
 | --- | --- |

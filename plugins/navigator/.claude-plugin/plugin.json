@@ -1,9 +1,9 @@
 {
   "name": "navigator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "On long jobs, publishes an HTML progress page on its own, always at the same address.",
   "author": {
-    "name": "Logix"
+    "name": "Enrico Emanuele"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -29,6 +29,18 @@
         "block-done"
       ],
       "default": "step-done"
+    },
+    "publish_at_turn_end": {
+      "type": "boolean",
+      "title": "Publish at the end of a turn",
+      "description": "At the end of each turn, also publishes what the cadence left unpublished. Off, only the cadence decides (a failed publish is still retried).",
+      "default": true
+    },
+    "notify": {
+      "type": "boolean",
+      "title": "Push notifications",
+      "description": "Sends a push notification when a step is blocked or a decision opens, where notifications are available.",
+      "default": true
     },
     "language": {
       "type": "string",
@@ -169,6 +181,24 @@
       "type": "boolean",
       "title": "Show test notes",
       "description": "Shows the note under the test count.",
+      "default": true
+    },
+    "show_times": {
+      "type": "boolean",
+      "title": "Show times",
+      "description": "Shows when the job started and how long steps have been in progress or blocked.",
+      "default": true
+    },
+    "show_events": {
+      "type": "boolean",
+      "title": "Show recent events",
+      "description": "Shows the last 10 events: steps done or blocked, decisions, blocks and job done.",
+      "default": true
+    },
+    "show_agents": {
+      "type": "boolean",
+      "title": "Show agents at work",
+      "description": "Shows the subagents running when the page is published.",
       "default": true
     }
   }
