@@ -14,7 +14,45 @@ export type Cadenza = 'passo-chiuso' | 'ogni-cambio' | 'solo-blocchi'
 
 export type Sezioni = { requisiti: boolean; test: boolean; pr: boolean; screenshot: boolean }
 
-export type Config = { isAcceso: boolean; soglia: number; cadenza: Cadenza; sezioni: Sezioni }
+export type Lingua = 'en' | 'it'
+
+export type Tema = 'standard' | 'alto-contrasto' | 'tenue'
+
+/** I colori della pagina; null = quello del tema. */
+export type Colori = Record<ColoreChiave, string | null>
+
+export type ColoreChiave =
+  | 'sfondo' | 'superficie' | 'testo' | 'accento'
+  | 'fatto' | 'in_corso' | 'bloccato' | 'da_fare' | 'attenzione'
+
+/** Quali informazioni mostra la pagina, oltre alle sezioni. */
+export type Dettaglio = {
+  passiFatti: boolean
+  motiviBlocco: boolean
+  contestoDecisioni: boolean
+  conteggiStato: boolean
+  barre: boolean
+  comprimiChiusi: boolean
+  noteTest: boolean
+}
+
+export type Config = {
+  isAcceso: boolean
+  soglia: number
+  cadenza: Cadenza
+  sezioni: Sezioni
+  lingua: Lingua
+  tema: Tema
+  colori: Colori
+  dettaglio: Dettaglio
+}
+
+export const COLORI_CHIAVI: readonly ColoreChiave[] = [
+  'sfondo', 'superficie', 'testo', 'accento', 'fatto', 'in_corso', 'bloccato', 'da_fare', 'attenzione',
+]
+
+const LINGUE: readonly Lingua[] = ['en', 'it']
+const TEMI: readonly Tema[] = ['standard', 'alto-contrasto', 'tenue']
 
 const CADENZE: readonly Cadenza[] = ['passo-chiuso', 'ogni-cambio', 'solo-blocchi']
 
@@ -49,12 +87,29 @@ const comeSoglia = (v: unknown, base: number): number =>
 const comeCadenza = (v: unknown, base: Cadenza): Cadenza =>
   CADENZE.includes(v as Cadenza) ? (v as Cadenza) : base
 
+const comeLingua = (v: unknown, base: Lingua): Lingua => (LINGUE.includes(v as Lingua) ? (v as Lingua) : base)
+
+const comeTema = (v: unknown, base: Tema): Tema => (TEMI.includes(v as Tema) ? (v as Tema) : base)
+
+/** Solo esadecimali (#rgb, #rrggbb, #rrggbbaa): niente altro entra nel CSS della pagina. */
+const comeColore = (v: unknown, base: string | null): string | null => {
+  if (typeof v !== 'string') return base
+  const t = v.trim()
+  if (t === '') return base
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t) ? t.toLowerCase() : base
+}
+
+const oggetto = (v: unknown): Record<string, unknown> =>
+  v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+
 /**
  * Le opzioni del plugin (userConfig) con sopra l'override del progetto,
  * `.claude/navigator.json`: ogni chiave assente nell'override resta quella
- * dell'utente.
+ * dell'utente. Un valore non valido vale come assente.
  */
 export function leggiConfig(opzioni: Opzioni, override: unknown): Config {
+  const colori = {} as Colori
+  for (const k of COLORI_CHIAVI) colori[k] = comeColore(opzioni[`colore_${k}`], null)
   const base: Config = {
     isAcceso: comeBool(opzioni.attivo, true),
     soglia: comeSoglia(opzioni.soglia_passi, 5),
@@ -65,10 +120,26 @@ export function leggiConfig(opzioni: Opzioni, override: unknown): Config {
       pr: comeBool(opzioni.sezione_pr, true),
       screenshot: comeBool(opzioni.sezione_screenshot, true),
     },
+    lingua: comeLingua(opzioni.lingua, 'en'),
+    tema: comeTema(opzioni.tema, 'standard'),
+    colori,
+    dettaglio: {
+      passiFatti: comeBool(opzioni.mostra_passi_fatti, true),
+      motiviBlocco: comeBool(opzioni.mostra_motivi_blocco, true),
+      contestoDecisioni: comeBool(opzioni.mostra_contesto_decisioni, true),
+      conteggiStato: comeBool(opzioni.mostra_conteggi_stato, true),
+      barre: comeBool(opzioni.mostra_barre, true),
+      comprimiChiusi: comeBool(opzioni.comprimi_blocchi_chiusi, true),
+      noteTest: comeBool(opzioni.mostra_note_test, true),
+    },
   }
   if (override === null || typeof override !== 'object') return base
   const o = override as Record<string, unknown>
-  const s = (o.sezioni ?? {}) as Record<string, unknown>
+  const s = oggetto(o.sezioni)
+  const c = oggetto(o.colori)
+  const d = oggetto(o.dettaglio)
+  const coloriO = {} as Colori
+  for (const k of COLORI_CHIAVI) coloriO[k] = comeColore(c[k], base.colori[k])
   return {
     isAcceso: comeBool(o.attivo, base.isAcceso),
     soglia: comeSoglia(o.soglia_passi, base.soglia),
@@ -78,6 +149,18 @@ export function leggiConfig(opzioni: Opzioni, override: unknown): Config {
       test: comeBool(s.test, base.sezioni.test),
       pr: comeBool(s.pr, base.sezioni.pr),
       screenshot: comeBool(s.screenshot, base.sezioni.screenshot),
+    },
+    lingua: comeLingua(o.lingua, base.lingua),
+    tema: comeTema(o.tema, base.tema),
+    colori: coloriO,
+    dettaglio: {
+      passiFatti: comeBool(d.passi_fatti, base.dettaglio.passiFatti),
+      motiviBlocco: comeBool(d.motivi_blocco, base.dettaglio.motiviBlocco),
+      contestoDecisioni: comeBool(d.contesto_decisioni, base.dettaglio.contestoDecisioni),
+      conteggiStato: comeBool(d.conteggi_stato, base.dettaglio.conteggiStato),
+      barre: comeBool(d.barre, base.dettaglio.barre),
+      comprimiChiusi: comeBool(d.comprimi_blocchi_chiusi, base.dettaglio.comprimiChiusi),
+      noteTest: comeBool(d.note_test, base.dettaglio.noteTest),
     },
   }
 }

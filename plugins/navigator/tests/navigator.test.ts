@@ -71,13 +71,48 @@ describe('regole', () => {
       decisioni: [{ domanda: 'Fatturare in EUR o AED?' }],
       blocchi: [{ nome: 'Blocco A', requisiti: ['RF-12'], pr: { stato: 'aperta', numero: '130' } }],
     })
-    const html = renderPagina({ stato: s, sezioni: { ...CONFIG.sezioni, pr: false }, progetto: 'laic', ora: 0, numero: 1, immagini: {} })
+    const html = renderPagina({ stato: s, config: { ...CONFIG, lingua: 'it', sezioni: { ...CONFIG.sezioni, pr: false } }, progetto: 'laic', ora: 0, numero: 1, immagini: {} })
     expect(html).toContain('<title>Navigator Pagamenti Stripe</title>')
     expect(html).toContain('>20%<')
     expect(html).toContain('Serve da te')
     expect(html).toContain('manca la chiave &lt;live&gt;')
     expect(html).toContain('RF-12')
     expect(html).not.toContain('#130')
+  })
+
+  test("l'inglese è la lingua di default, l'italiano si sceglie", () => {
+    const s = conAggiornamento(conPassi(5), { decisioni: [{ domanda: 'Q?' }] })
+    const pagina = (lingua: 'en' | 'it') => renderPagina({ stato: s, config: { ...CONFIG, lingua }, progetto: 'p', ora: 0, numero: 1, immagini: {} })
+    expect(CONFIG.lingua).toBe('en')
+    expect(pagina('en')).toContain('Needs you')
+    expect(pagina('en')).toContain('0 of 5 steps done')
+    expect(pagina('en')).not.toContain('Serve da te')
+    expect(pagina('it')).toContain('0 di 5 passi fatti')
+  })
+
+  test('colori: tema scelto, personalizzati sopra, valori non esadecimali scartati', () => {
+    const c = leggiConfig({ tema: 'tenue', colore_accento: '#FF0066', colore_fatto: 'red; } body { display:none' }, { colori: { sfondo: '#000' } })
+    expect(c.tema).toBe('tenue')
+    expect(c.colori.accento).toBe('#ff0066')
+    expect(c.colori.fatto).toBe(null)
+    expect(c.colori.sfondo).toBe('#000')
+    const html = renderPagina({ stato: conPassi(5), config: c, progetto: 'p', ora: 0, numero: 1, immagini: {} })
+    expect(html).toContain('--accent: #ff0066;')
+    expect(html).toContain('--ok: #4f8a6b;')
+    expect(html).not.toContain('display:none')
+  })
+
+  test('dettaglio: passi fatti, motivi, contesto, conteggi e barre si spengono', () => {
+    let s = conTaskAggiornato(conPassi(5), { taskId: '1', status: 'completed' })
+    s = conAggiornamento(s, { bloccati: [{ passo: 'Passo 4', motivo: 'MOTIVO-X' }], decisioni: [{ domanda: 'Q?', contesto: 'CONTESTO-Y' }] })
+    const c = leggiConfig({ mostra_passi_fatti: false }, { dettaglio: { motivi_blocco: false, contesto_decisioni: false, conteggi_stato: false, barre: false } })
+    const html = renderPagina({ stato: s, config: c, progetto: 'p', ora: 0, numero: 1, immagini: {} })
+    expect(html).not.toContain('Passo 1<')
+    expect(html).toContain('1 completed step hidden')
+    expect(html).not.toContain('MOTIVO-X')
+    expect(html).not.toContain('CONTESTO-Y')
+    expect(html).not.toContain('role="progressbar"')
+    expect(html).not.toContain('class="chips"><span class="pill')
   })
 })
 

@@ -1,25 +1,27 @@
 # claude-plugins
 
-Plugin per Claude Code del team Logix.
+**English** · [Italiano](README.it.md)
 
-| Plugin | Cosa fa |
+Claude Code plugins from the Logix team.
+
+| Plugin | What it does |
 | --- | --- |
-| [navigator](plugins/navigator) | Nei lavori lunghi pubblica da solo una pagina HTML di avanzamento come Artifact, sempre allo stesso indirizzo. |
+| [navigator](plugins/navigator) | On long jobs, publishes an HTML progress page as an Artifact on its own, always at the same address. |
 
-## Installazione
+## Install
 
-Al prompt di Claude Code, in un terminale:
+At a Claude Code prompt, in a terminal:
 
 ```
 /plugin install navigator --marketplace enrico-emanuele/claude-plugins
 ```
 
-Rispondere `y` per aggiungere il marketplace, confermare l'ambito «utente» con Invio e impostare le opzioni. Il plugin è attivo subito, e nelle sessioni successive anche nell'app desktop.
+Answer `y` to add the marketplace, confirm the "user" scope with Enter, then set the options. The plugin is active right away, and in later sessions in the desktop app too.
 
-## Aggiornamento
+## Update
 
 ```
 claude plugin update navigator
 ```
 
-poi `/reload-plugins` nella sessione aperta.
+then `/reload-plugins` in the open session.

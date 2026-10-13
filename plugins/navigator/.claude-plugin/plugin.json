@@ -1,8 +1,10 @@
 {
   "name": "navigator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Nei lavori lunghi pubblica da solo una pagina HTML di avanzamento, sempre allo stesso indirizzo.",
-  "author": { "name": "Logix" },
+  "author": {
+    "name": "Logix"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "attivo": {
@@ -21,7 +23,11 @@
       "type": "string",
       "title": "Cadenza di ripubblicazione",
       "description": "passo-chiuso: a ogni passo chiuso e subito su blocchi e decisioni. ogni-cambio: a ogni cambio di stato. solo-blocchi: quando un blocco intero si chiude e su blocchi e decisioni.",
-      "options": ["passo-chiuso", "ogni-cambio", "solo-blocchi"],
+      "options": [
+        "passo-chiuso",
+        "ogni-cambio",
+        "solo-blocchi"
+      ],
       "default": "passo-chiuso"
     },
     "sezione_requisiti": {
@@ -46,6 +52,123 @@
       "type": "boolean",
       "title": "Sezione screenshot",
       "description": "Mostra gli screenshot dell'interfaccia di ogni blocco.",
+      "default": true
+    },
+    "lingua": {
+      "type": "string",
+      "title": "Lingua della pagina",
+      "description": "Lingua della pagina pubblicata: en (inglese) o it (italiano).",
+      "options": [
+        "en",
+        "it"
+      ],
+      "default": "en"
+    },
+    "tema": {
+      "type": "string",
+      "title": "Tema dei colori",
+      "description": "Tavolozza di partenza: standard, alto-contrasto o tenue. I colori personalizzati la sovrascrivono.",
+      "options": [
+        "standard",
+        "alto-contrasto",
+        "tenue"
+      ],
+      "default": "standard"
+    },
+    "colore_sfondo": {
+      "type": "string",
+      "title": "Colore: sfondo",
+      "description": "Colore dello sfondo della pagina, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_superficie": {
+      "type": "string",
+      "title": "Colore: superficie",
+      "description": "Colore dei riquadri (riepilogo e blocchi), in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_testo": {
+      "type": "string",
+      "title": "Colore: testo",
+      "description": "Colore del testo, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_accento": {
+      "type": "string",
+      "title": "Colore: accento",
+      "description": "Colore di accento (link, occhiello, etichette), in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_fatto": {
+      "type": "string",
+      "title": "Colore: fatto",
+      "description": "Colore dello stato «fatto» e delle barre, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_in_corso": {
+      "type": "string",
+      "title": "Colore: in corso",
+      "description": "Colore dello stato «in corso», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_bloccato": {
+      "type": "string",
+      "title": "Colore: bloccato",
+      "description": "Colore dello stato «bloccato», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_da_fare": {
+      "type": "string",
+      "title": "Colore: da fare",
+      "description": "Colore dello stato «da fare», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "colore_attenzione": {
+      "type": "string",
+      "title": "Colore: attenzione",
+      "description": "Colore della sezione «Serve da te», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "default": ""
+    },
+    "mostra_passi_fatti": {
+      "type": "boolean",
+      "title": "Mostra i passi fatti",
+      "description": "Elenca anche i passi fatti; spento, li conta soltanto.",
+      "default": true
+    },
+    "mostra_motivi_blocco": {
+      "type": "boolean",
+      "title": "Mostra i motivi dei blocchi",
+      "description": "Mostra perché un passo è fermo.",
+      "default": true
+    },
+    "mostra_contesto_decisioni": {
+      "type": "boolean",
+      "title": "Mostra il contesto delle decisioni",
+      "description": "Mostra il contesto sotto ogni decisione da prendere.",
+      "default": true
+    },
+    "mostra_conteggi_stato": {
+      "type": "boolean",
+      "title": "Mostra i conteggi per stato",
+      "description": "Mostra quanti passi sono in corso, bloccati, da fare e fatti.",
+      "default": true
+    },
+    "mostra_barre": {
+      "type": "boolean",
+      "title": "Mostra le barre di avanzamento",
+      "description": "Mostra le barre di avanzamento complessiva, dei blocchi e dei test.",
+      "default": true
+    },
+    "comprimi_blocchi_chiusi": {
+      "type": "boolean",
+      "title": "Comprimi i blocchi chiusi",
+      "description": "Mostra chiusi i blocchi con tutti i passi fatti.",
+      "default": true
+    },
+    "mostra_note_test": {
+      "type": "boolean",
+      "title": "Mostra le note dei test",
+      "description": "Mostra la nota sotto il conteggio dei test.",
       "default": true
     }
   }

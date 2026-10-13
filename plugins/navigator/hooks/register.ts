@@ -95,7 +95,7 @@ async function pubblica($: $): Promise<void> {
     const ora = await $.clock.now()
     if (!(await $.fs.exists(`${cartella}/.gitignore`))) await $.fs.write(`${cartella}/.gitignore`, '*\n')
     const html = renderPagina({
-      stato: s, sezioni: config.sezioni, progetto, ora, numero: s.pubblicazioni + 1,
+      stato: s, config, progetto, ora, numero: s.pubblicazioni + 1,
       immagini: await immagini($, s, root),
     })
     await $.fs.write(file, html)

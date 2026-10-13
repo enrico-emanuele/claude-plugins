@@ -1,51 +1,91 @@
 # navigator
 
-Plugin per Claude Code. Nei lavori lunghi crea da solo una pagina HTML di avanzamento come Artifact, lo ripubblica sempre allo stesso indirizzo e manda il link una volta, alla prima pubblicazione. Non serve chiederlo nel prompt.
+**English** · [Italiano](README.it.md)
 
-## Cosa fa
+A Claude Code plugin. On long jobs it publishes an HTML progress page as an Artifact on its own, republishes it at the same address as the work moves, and sends the link once, on the first publish. No need to ask for it in the prompt.
 
-- **Quando parte.** Quando il piano di Claude arriva alla soglia di passi (5 per default). Il piano è la lista task (`TaskCreate`/`TaskUpdate` o `TodoWrite`). Se la sessione non ha una lista task, Claude dichiara i passi con lo strumento del plugin.
-- **Cosa mostra.** Sempre presenti: percentuale complessiva, passi per blocco con lo stato (da fare, in corso, fatto, bloccato), la sezione «Serve da te» con decisioni da prendere e passi fermi, data e ora dell'ultimo aggiornamento. Si accendono da configurazione: requisiti coperti, test che passano, PR con il suo stato, screenshot dell'interfaccia. Ognuna compare solo se ha dati.
-- **Blocchi.** Claude raggruppa i passi scrivendo il nome del blocco fra quadre in testa al titolo: `[Pagamenti] Migrazione fatture`. I blocchi chiusi si mostrano compressi.
-- **Dati extra.** Claude li passa con lo strumento `mcp__navigator__aggiorna`: passi fermi, decisioni, e per ogni blocco requisiti, test, PR e screenshot.
-- **Pubblicazione.** La fa il plugin, non Claude. La pagina è generata dal plugin con un formato fisso, scritta in `.claude/navigator/<sessione>.html` (cartella che si ignora da sola in git) e pubblicata con lo strumento Artifact. A fine turno, se c'è qualcosa di non pubblicato, il plugin ripubblica comunque.
+## What it does
 
-## Configurazione
+- **When it starts.** When Claude's plan reaches the step threshold (5 by default). The plan is Claude's task list (`TaskCreate`/`TaskUpdate` or `TodoWrite`). When the session has no task list, Claude declares the steps through the plugin's tool.
+- **What it shows.** Always: overall progress, steps grouped by block with their state (to do, in progress, done, blocked), a "Needs you" section with decisions to make and blocked steps, and the date and time of the last update. Turned on from the settings: requirements covered, tests passing, the PR and its state, screenshots of the interface. Each one appears only when it has data.
+- **Blocks.** Claude groups steps by putting the block name in square brackets at the start of the step title: `[Payments] Migrate invoices`. Finished blocks are shown collapsed.
+- **Extra data.** Claude passes it through the `mcp__navigator__aggiorna` tool: blocked steps, decisions, and per block the requirements, tests, PR and screenshots.
+- **Publishing.** The plugin does it, not Claude. It renders the page in a fixed format, writes it to `.claude/navigator/<session>.html` (a folder that ignores itself in git) and publishes it with the Artifact tool. At the end of a turn it republishes anything left unpublished.
 
-Opzioni del plugin (`/config`, oppure `pluginConfigs` nelle impostazioni):
+## Settings
 
-| Opzione | Default | Effetto |
+Plugin options (`/config`, or `pluginConfigs` in the settings).
+
+**Behaviour**
+
+| Option | Default | Effect |
 | --- | --- | --- |
-| `attivo` | `true` | Acceso o spento. |
-| `soglia_passi` | `5` | Numero di passi da cui parte il navigator. |
-| `cadenza` | `passo-chiuso` | `passo-chiuso`: a ogni passo chiuso. `ogni-cambio`: a ogni cambio di stato. `solo-blocchi`: quando un blocco intero si chiude. Con tutte e tre si ripubblica subito su passi fermi, decisioni nuove e lavoro concluso. |
-| `sezione_requisiti` | `true` | Requisiti coperti per blocco. |
-| `sezione_test` | `true` | Test che passano per blocco. |
-| `sezione_pr` | `true` | PR e stato per blocco. |
-| `sezione_screenshot` | `true` | Screenshot dell'interfaccia per blocco (gli ultimi 4). |
+| `attivo` | `true` | On or off. |
+| `soglia_passi` | `5` | Number of steps at which the page starts. |
+| `cadenza` | `passo-chiuso` | `passo-chiuso`: on every finished step. `ogni-cambio`: on every state change. `solo-blocchi`: when a whole block finishes. All three republish at once on a blocked step, a new decision and the end of the job. |
 
-**Override per progetto.** Un file `.claude/navigator.json` nella radice del progetto, da committare, vale per tutti i colleghi. Ogni chiave assente resta quella dell'utente:
+**Language and colours**
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `lingua` | `en` | Language of the published page: `en` or `it`. |
+| `tema` | `standard` | Starting palette: `standard`, `alto-contrasto` (high contrast) or `tenue` (muted). Each one has a light and a dark version. |
+| `colore_sfondo` | theme | Page background. |
+| `colore_superficie` | theme | Panels (summary and blocks). |
+| `colore_testo` | theme | Text. |
+| `colore_accento` | theme | Accent: links, eyebrow, labels. |
+| `colore_fatto` | theme | "Done" state and progress bars. |
+| `colore_in_corso` | theme | "In progress" state. |
+| `colore_bloccato` | theme | "Blocked" state. |
+| `colore_da_fare` | theme | "To do" state. |
+| `colore_attenzione` | theme | The "Needs you" section. Follows `colore_bloccato` when only that one is set. |
+
+Colours are hex values (`#1d5fc4`, `#fff`); empty means the theme's. A custom colour applies to both the light and the dark version. Any other value is ignored.
+
+**Sections and detail**
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `sezione_requisiti` | `true` | Requirements covered per block. |
+| `sezione_test` | `true` | Tests passing per block. |
+| `sezione_pr` | `true` | PR and its state per block. |
+| `sezione_screenshot` | `true` | Interface screenshots per block (the last 4). |
+| `mostra_passi_fatti` | `true` | Lists done steps too; off, it only counts them. |
+| `mostra_motivi_blocco` | `true` | Shows why a step is blocked. |
+| `mostra_contesto_decisioni` | `true` | Shows the context under each decision. |
+| `mostra_conteggi_stato` | `true` | Shows how many steps are in each state. |
+| `mostra_barre` | `true` | Shows the progress bars. |
+| `comprimi_blocchi_chiusi` | `true` | Collapses blocks whose steps are all done. |
+| `mostra_note_test` | `true` | Shows the note under the test count. |
+
+**Per-project override.** A `.claude/navigator.json` file at the project root, committed, applies to everyone on the project. Any key left out keeps the user's value:
 
 ```json
 {
   "attivo": true,
   "soglia_passi": 8,
   "cadenza": "solo-blocchi",
-  "sezioni": { "screenshot": false }
+  "lingua": "it",
+  "tema": "tenue",
+  "colori": { "accento": "#0b6e4f", "attenzione": "#c2410c" },
+  "sezioni": { "screenshot": false },
+  "dettaglio": { "passi_fatti": false, "barre": true }
 }
 ```
 
-## Comando
+Keys of `colori`: `sfondo`, `superficie`, `testo`, `accento`, `fatto`, `in_corso`, `bloccato`, `da_fare`, `attenzione`. Keys of `dettaglio`: `passi_fatti`, `motivi_blocco`, `contesto_decisioni`, `conteggi_stato`, `barre`, `comprimi_blocchi_chiusi`, `note_test`.
 
-- `/navigator`: stato, link e ultimo errore.
-- `/navigator pubblica`: crea o aggiorna il navigator adesso, anche sotto la soglia.
-- `/navigator spegni` e `/navigator accendi`: solo per la sessione in corso.
+## Command
 
-## Permessi
+- `/navigator`: state, link and last error.
+- `/navigator pubblica`: creates or updates the page now, even below the threshold.
+- `/navigator spegni` and `/navigator accendi`: off and on for the current session only.
 
-Ogni pubblicazione passa dal controllo dei permessi dello strumento Artifact. Per non dover approvare ogni ripubblicazione, aggiungere `Artifact` alle regole `allow` delle impostazioni. Dove Artifact non c'è, per esempio con un provider diverso da claude.ai, il navigator resta solo il file locale: il plugin lo segnala e `/navigator` ne mostra il percorso.
+## Permissions
 
-## Sviluppo
+Every publish goes through the Artifact tool's permission check. To avoid approving each republish, add `Artifact` to the `allow` rules in the settings. Where Artifact is not available, for example with a provider other than claude.ai, the page stays a local file: the plugin says so and `/navigator` shows its path.
+
+## Development
 
 ```bash
 claude plugin validate .
