@@ -11,7 +11,7 @@ Plugin per Claude Code del team Logix.
 Al prompt di Claude Code, in un terminale:
 
 ```
-/plugin install navigator --marketplace EnricoEmanuele-Logix/claude-plugins
+/plugin install navigator --marketplace enrico-emanuele/claude-plugins
 ```
 
 Rispondere `y` per aggiungere il marketplace, confermare l'ambito «utente» con Invio e impostare le opzioni. Il plugin è attivo subito, e nelle sessioni successive anche nell'app desktop.
