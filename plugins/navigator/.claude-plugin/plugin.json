@@ -1,0 +1,52 @@
+{
+  "name": "navigator",
+  "version": "0.1.0",
+  "description": "Nei lavori lunghi pubblica da solo una pagina HTML di avanzamento, sempre allo stesso indirizzo.",
+  "author": { "name": "Logix" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "attivo": {
+      "type": "boolean",
+      "title": "Navigator attivo",
+      "description": "Crea e aggiorna da solo il navigator nei lavori lunghi.",
+      "default": true
+    },
+    "soglia_passi": {
+      "type": "number",
+      "title": "Soglia di passi",
+      "description": "Il navigator parte quando il piano di lavoro arriva a questo numero di passi.",
+      "default": 5
+    },
+    "cadenza": {
+      "type": "string",
+      "title": "Cadenza di ripubblicazione",
+      "description": "passo-chiuso: a ogni passo chiuso e subito su blocchi e decisioni. ogni-cambio: a ogni cambio di stato. solo-blocchi: quando un blocco intero si chiude e su blocchi e decisioni.",
+      "options": ["passo-chiuso", "ogni-cambio", "solo-blocchi"],
+      "default": "passo-chiuso"
+    },
+    "sezione_requisiti": {
+      "type": "boolean",
+      "title": "Sezione requisiti",
+      "description": "Mostra i requisiti coperti da ogni blocco.",
+      "default": true
+    },
+    "sezione_test": {
+      "type": "boolean",
+      "title": "Sezione test",
+      "description": "Mostra quanti test passano per ogni blocco.",
+      "default": true
+    },
+    "sezione_pr": {
+      "type": "boolean",
+      "title": "Sezione PR",
+      "description": "Mostra la pull request di ogni blocco con il suo stato.",
+      "default": true
+    },
+    "sezione_screenshot": {
+      "type": "boolean",
+      "title": "Sezione screenshot",
+      "description": "Mostra gli screenshot dell'interfaccia di ogni blocco.",
+      "default": true
+    }
+  }
+}

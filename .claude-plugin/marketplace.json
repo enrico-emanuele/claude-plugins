@@ -1,0 +1,14 @@
+{
+  "name": "logix",
+  "description": "Plugin per Claude Code del team Logix.",
+  "owner": {
+    "name": "Enrico Emanuele"
+  },
+  "plugins": [
+    {
+      "name": "navigator",
+      "source": "./plugins/navigator",
+      "description": "Nei lavori lunghi pubblica da solo una pagina HTML di avanzamento, sempre allo stesso indirizzo."
+    }
+  ]
+}
