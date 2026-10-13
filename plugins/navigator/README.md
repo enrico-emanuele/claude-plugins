@@ -9,7 +9,7 @@ A Claude Code plugin. On long jobs it publishes an HTML progress page as an Arti
 - **When it starts.** When Claude's plan reaches the step threshold (5 by default). The plan is Claude's task list (`TaskCreate`/`TaskUpdate` or `TodoWrite`). When the session has no task list, Claude declares the steps through the plugin's tool.
 - **What it shows.** Always: overall progress, steps grouped by block with their state (to do, in progress, done, blocked), a "Needs you" section with decisions to make and blocked steps, and the date and time of the last update. Turned on from the settings: requirements covered, tests passing, the PR and its state, screenshots of the interface. Each one appears only when it has data.
 - **Blocks.** Claude groups steps by putting the block name in square brackets at the start of the step title: `[Payments] Migrate invoices`. Finished blocks are shown collapsed.
-- **Extra data.** Claude passes it through the `mcp__navigator__aggiorna` tool: blocked steps, decisions, and per block the requirements, tests, PR and screenshots.
+- **Extra data.** Claude passes it through the `mcp__navigator__update` tool: blocked steps, decisions, and per block the requirements, tests, PR and screenshots.
 - **Publishing.** The plugin does it, not Claude. It renders the page in a fixed format, writes it to `.claude/navigator/<session>.html` (a folder that ignores itself in git) and publishes it with the Artifact tool. At the end of a turn it republishes anything left unpublished.
 
 ## Settings
@@ -20,25 +20,25 @@ Plugin options (`/config`, or `pluginConfigs` in the settings).
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `attivo` | `true` | On or off. |
-| `soglia_passi` | `5` | Number of steps at which the page starts. |
-| `cadenza` | `passo-chiuso` | `passo-chiuso`: on every finished step. `ogni-cambio`: on every state change. `solo-blocchi`: when a whole block finishes. All three republish at once on a blocked step, a new decision and the end of the job. |
+| `enabled` | `true` | On or off. |
+| `step_threshold` | `5` | Number of steps at which the page starts. |
+| `cadence` | `step-done` | `step-done`: on every finished step. `every-change`: on every state change. `block-done`: when a whole block finishes. All three republish at once on a blocked step, a new decision and the end of the job. |
 
 **Language and colours**
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `lingua` | `en` | Language of the published page: `en` or `it`. |
-| `tema` | `standard` | Starting palette: `standard`, `alto-contrasto` (high contrast) or `tenue` (muted). Each one has a light and a dark version. |
-| `colore_sfondo` | theme | Page background. |
-| `colore_superficie` | theme | Panels (summary and blocks). |
-| `colore_testo` | theme | Text. |
-| `colore_accento` | theme | Accent: links, eyebrow, labels. |
-| `colore_fatto` | theme | "Done" state and progress bars. |
-| `colore_in_corso` | theme | "In progress" state. |
-| `colore_bloccato` | theme | "Blocked" state. |
-| `colore_da_fare` | theme | "To do" state. |
-| `colore_attenzione` | theme | The "Needs you" section. Follows `colore_bloccato` when only that one is set. |
+| `language` | `en` | Language of the published page: `en` or `it`. |
+| `theme` | `standard` | Starting palette: `standard`, `high-contrast` or `muted`. Each one has a light and a dark version. |
+| `color_background` | theme | Page background. |
+| `color_surface` | theme | Panels (summary and blocks). |
+| `color_text` | theme | Text. |
+| `color_accent` | theme | Accent: links, eyebrow, labels. |
+| `color_done` | theme | "Done" state and progress bars. |
+| `color_in_progress` | theme | "In progress" state. |
+| `color_blocked` | theme | "Blocked" state. |
+| `color_todo` | theme | "To do" state. |
+| `color_attention` | theme | The "Needs you" section. Follows `color_blocked` when only that one is set. |
 
 Colours are hex values (`#1d5fc4`, `#fff`); empty means the theme's. A custom colour applies to both the light and the dark version. Any other value is ignored.
 
@@ -46,40 +46,40 @@ Colours are hex values (`#1d5fc4`, `#fff`); empty means the theme's. A custom co
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `sezione_requisiti` | `true` | Requirements covered per block. |
-| `sezione_test` | `true` | Tests passing per block. |
-| `sezione_pr` | `true` | PR and its state per block. |
-| `sezione_screenshot` | `true` | Interface screenshots per block (the last 4). |
-| `mostra_passi_fatti` | `true` | Lists done steps too; off, it only counts them. |
-| `mostra_motivi_blocco` | `true` | Shows why a step is blocked. |
-| `mostra_contesto_decisioni` | `true` | Shows the context under each decision. |
-| `mostra_conteggi_stato` | `true` | Shows how many steps are in each state. |
-| `mostra_barre` | `true` | Shows the progress bars. |
-| `comprimi_blocchi_chiusi` | `true` | Collapses blocks whose steps are all done. |
-| `mostra_note_test` | `true` | Shows the note under the test count. |
+| `section_requirements` | `true` | Requirements covered per block. |
+| `section_tests` | `true` | Tests passing per block. |
+| `section_pr` | `true` | PR and its state per block. |
+| `section_screenshots` | `true` | Interface screenshots per block (the last 4). |
+| `show_done_steps` | `true` | Lists done steps too; off, it only counts them. |
+| `show_block_reasons` | `true` | Shows why a step is blocked. |
+| `show_decision_context` | `true` | Shows the context under each decision. |
+| `show_status_counts` | `true` | Shows how many steps are in each state. |
+| `show_progress_bars` | `true` | Shows the progress bars. |
+| `collapse_done_blocks` | `true` | Collapses blocks whose steps are all done. |
+| `show_test_notes` | `true` | Shows the note under the test count. |
 
 **Per-project override.** A `.claude/navigator.json` file at the project root, committed, applies to everyone on the project. Any key left out keeps the user's value:
 
 ```json
 {
-  "attivo": true,
-  "soglia_passi": 8,
-  "cadenza": "solo-blocchi",
-  "lingua": "it",
-  "tema": "tenue",
-  "colori": { "accento": "#0b6e4f", "attenzione": "#c2410c" },
-  "sezioni": { "screenshot": false },
-  "dettaglio": { "passi_fatti": false, "barre": true }
+  "enabled": true,
+  "step_threshold": 8,
+  "cadence": "block-done",
+  "language": "it",
+  "theme": "muted",
+  "colors": { "accent": "#0b6e4f", "attention": "#c2410c" },
+  "sections": { "screenshots": false },
+  "detail": { "done_steps": false, "progress_bars": true }
 }
 ```
 
-Keys of `colori`: `sfondo`, `superficie`, `testo`, `accento`, `fatto`, `in_corso`, `bloccato`, `da_fare`, `attenzione`. Keys of `dettaglio`: `passi_fatti`, `motivi_blocco`, `contesto_decisioni`, `conteggi_stato`, `barre`, `comprimi_blocchi_chiusi`, `note_test`.
+Keys of `colors`: `background`, `surface`, `text`, `accent`, `done`, `in_progress`, `blocked`, `todo`, `attention`. Keys of `sections`: `requirements`, `tests`, `pr`, `screenshots`. Keys of `detail`: `done_steps`, `block_reasons`, `decision_context`, `status_counts`, `progress_bars`, `collapse_done_blocks`, `test_notes`.
 
 ## Command
 
 - `/navigator`: state, link and last error.
-- `/navigator pubblica`: creates or updates the page now, even below the threshold.
-- `/navigator spegni` and `/navigator accendi`: off and on for the current session only.
+- `/navigator publish`: creates or updates the page now, even below the threshold.
+- `/navigator off` and `/navigator on`: for the current session only.
 
 ## Permissions
 

@@ -1,184 +1,189 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { STATO_INIZIALE, conAggiornamento, conAttivazione, conTaskAggiornato, conTaskCreato, leggiConfig, motivoPubblicazione, separaBlocco } from '../hooks/logica'
-import type { Config } from '../hooks/logica'
-import { renderPagina } from '../hooks/pagina'
+import { INITIAL_STATE, publishReason, readConfig, splitBlock, withActivation, withTaskCreated, withTaskUpdated, withToolUpdate } from '../hooks/logic'
+import type { Config } from '../hooks/logic'
+import { renderPage } from '../hooks/page'
 
-const CONFIG: Config = leggiConfig({}, null)
+const CONFIG: Config = readConfig({}, null)
 
-const conPassi = (n: number, cfg = CONFIG) => {
-  let s = STATO_INIZIALE
-  for (let i = 1; i <= n; i++) s = conAttivazione(conTaskCreato(s, String(i), `[Blocco ${i <= 3 ? 'A' : 'B'}] Passo ${i}`), cfg)
+const withSteps = (n: number, cfg = CONFIG) => {
+  let s = INITIAL_STATE
+  for (let i = 1; i <= n; i++) s = withActivation(withTaskCreated(s, String(i), `[Block ${i <= 3 ? 'A' : 'B'}] Step ${i}`), cfg)
   return s
 }
 
-describe('regole', () => {
-  test('il prefisso fra quadre diventa il blocco', () => {
-    expect(separaBlocco('[Pagamenti] Migrazione fatture')).toEqual({ blocco: 'Pagamenti', titolo: 'Migrazione fatture' })
-    expect(separaBlocco('Senza blocco')).toEqual({ blocco: null, titolo: 'Senza blocco' })
+const page = (s: typeof INITIAL_STATE, config: Config = CONFIG) =>
+  renderPage({ state: s, config, project: 'p', now: 0, number: 1, images: {} })
+
+describe('rules', () => {
+  test('the bracketed prefix becomes the block', () => {
+    expect(splitBlock('[Payments] Migrate invoices')).toEqual({ block: 'Payments', title: 'Migrate invoices' })
+    expect(splitBlock('No block')).toEqual({ block: null, title: 'No block' })
   })
 
-  test('si attiva alla soglia, non prima', () => {
-    expect(conPassi(4).isAttivo).toBe(false)
-    expect(conPassi(5).isAttivo).toBe(true)
-    expect(conPassi(2, { ...CONFIG, soglia: 2 }).isAttivo).toBe(true)
-    expect(conPassi(9, { ...CONFIG, isAcceso: false }).isAttivo).toBe(false)
+  test('starts at the threshold, not before', () => {
+    expect(withSteps(4).isActive).toBe(false)
+    expect(withSteps(5).isActive).toBe(true)
+    expect(withSteps(2, { ...CONFIG, threshold: 2 }).isActive).toBe(true)
+    expect(withSteps(9, { ...CONFIG, isEnabled: false }).isActive).toBe(false)
   })
 
-  test("l'override del progetto vince sulle opzioni, chiave per chiave", () => {
-    const c = leggiConfig({ soglia_passi: 8, cadenza: 'ogni-cambio' }, { soglia_passi: 3, sezioni: { pr: false } })
-    expect(c.soglia).toBe(3)
-    expect(c.cadenza).toBe('ogni-cambio')
-    expect(c.sezioni).toEqual({ requisiti: true, test: true, pr: false, screenshot: true })
-    expect(leggiConfig({}, { cadenza: 'a caso' }).cadenza).toBe('passo-chiuso')
+  test('the project override wins over the options, key by key', () => {
+    const c = readConfig({ step_threshold: 8, cadence: 'every-change' }, { step_threshold: 3, sections: { pr: false } })
+    expect(c.threshold).toBe(3)
+    expect(c.cadence).toBe('every-change')
+    expect(c.sections).toEqual({ requirements: true, tests: true, pr: false, screenshots: true })
+    expect(readConfig({}, { cadence: 'whatever' }).cadence).toBe('step-done')
   })
 
-  test('passo-chiuso: pubblica alla chiusura, non all\'avvio di un passo', () => {
-    const s = conPassi(5)
-    const avviato = conTaskAggiornato(s, { taskId: '1', status: 'in_progress' })
-    expect(motivoPubblicazione(s, avviato, 'passo-chiuso', 'lista')).toBe(null)
-    expect(motivoPubblicazione(s, avviato, 'ogni-cambio', 'lista')).toBe('cambio')
-    const chiuso = conTaskAggiornato(avviato, { taskId: '1', status: 'completed' })
-    expect(motivoPubblicazione(avviato, chiuso, 'passo-chiuso', 'lista')).toBe('passo chiuso')
-    expect(motivoPubblicazione(avviato, chiuso, 'solo-blocchi', 'lista')).toBe(null)
+  test('step-done: publishes when a step finishes, not when it starts', () => {
+    const s = withSteps(5)
+    const started = withTaskUpdated(s, { taskId: '1', status: 'in_progress' })
+    expect(publishReason(s, started, 'step-done', 'list')).toBe(null)
+    expect(publishReason(s, started, 'every-change', 'list')).toBe('change')
+    const finished = withTaskUpdated(started, { taskId: '1', status: 'completed' })
+    expect(publishReason(started, finished, 'step-done', 'list')).toBe('step done')
+    expect(publishReason(started, finished, 'block-done', 'list')).toBe(null)
   })
 
-  test('solo-blocchi: pubblica quando un blocco intero si chiude', () => {
-    let s = conPassi(5)
-    s = conTaskAggiornato(s, { taskId: '1', status: 'completed' })
-    s = conTaskAggiornato(s, { taskId: '2', status: 'completed' })
-    const chiuso = conTaskAggiornato(s, { taskId: '3', status: 'completed' })
-    expect(motivoPubblicazione(s, chiuso, 'solo-blocchi', 'lista')).toBe('blocco chiuso')
+  test('block-done: publishes when a whole block finishes', () => {
+    let s = withSteps(5)
+    s = withTaskUpdated(s, { taskId: '1', status: 'completed' })
+    s = withTaskUpdated(s, { taskId: '2', status: 'completed' })
+    const finished = withTaskUpdated(s, { taskId: '3', status: 'completed' })
+    expect(publishReason(s, finished, 'block-done', 'list')).toBe('block done')
   })
 
-  test('un passo fermo o una decisione pubblicano a ogni cadenza', () => {
-    const s = conPassi(5)
-    const fermo = conAggiornamento(s, { bloccati: [{ passo: 'Passo 4', motivo: 'manca la chiave' }] })
-    const decisione = conAggiornamento(s, { decisioni: [{ domanda: 'Quale piano?' }] })
-    for (const cadenza of ['passo-chiuso', 'ogni-cambio', 'solo-blocchi'] as const) {
-      expect(motivoPubblicazione(s, fermo, cadenza, 'strumento')).toBe('passo fermo')
-      expect(motivoPubblicazione(s, decisione, cadenza, 'strumento')).toBe('decisione')
+  test('a blocked step or a decision publishes at every cadence', () => {
+    const s = withSteps(5)
+    const blocked = withToolUpdate(s, { blocked: [{ step: 'Step 4', reason: 'missing key' }] })
+    const decision = withToolUpdate(s, { decisions: [{ question: 'Which plan?' }] })
+    for (const cadence of ['step-done', 'every-change', 'block-done'] as const) {
+      expect(publishReason(s, blocked, cadence, 'tool')).toBe('step blocked')
+      expect(publishReason(s, decision, cadence, 'tool')).toBe('decision')
     }
   })
 
-  test('la pagina mostra passi, fermi, decisioni e solo le sezioni accese', () => {
-    let s = conPassi(5)
-    s = conTaskAggiornato(s, { taskId: '1', status: 'completed' })
-    s = conAggiornamento(s, {
-      titolo: 'Pagamenti Stripe',
-      bloccati: [{ passo: 'Passo 4', motivo: 'manca la chiave <live>' }],
-      decisioni: [{ domanda: 'Fatturare in EUR o AED?' }],
-      blocchi: [{ nome: 'Blocco A', requisiti: ['RF-12'], pr: { stato: 'aperta', numero: '130' } }],
+  test('the page shows steps, blockers, decisions and only the sections turned on', () => {
+    let s = withSteps(5)
+    s = withTaskUpdated(s, { taskId: '1', status: 'completed' })
+    s = withToolUpdate(s, {
+      title: 'Stripe payments',
+      blocked: [{ step: 'Step 4', reason: 'missing the <live> key' }],
+      decisions: [{ question: 'Bill in EUR or AED?' }],
+      blocks: [{ name: 'Block A', requirements: ['FR-12'], pr: { state: 'open', number: '130' } }],
     })
-    const html = renderPagina({ stato: s, config: { ...CONFIG, lingua: 'it', sezioni: { ...CONFIG.sezioni, pr: false } }, progetto: 'laic', ora: 0, numero: 1, immagini: {} })
-    expect(html).toContain('<title>Navigator Pagamenti Stripe</title>')
+    const html = page(s, { ...CONFIG, sections: { ...CONFIG.sections, pr: false } })
+    expect(html).toContain('<title>Navigator Stripe payments</title>')
     expect(html).toContain('>20%<')
-    expect(html).toContain('Serve da te')
-    expect(html).toContain('manca la chiave &lt;live&gt;')
-    expect(html).toContain('RF-12')
+    expect(html).toContain('Needs you')
+    expect(html).toContain('missing the &lt;live&gt; key')
+    expect(html).toContain('FR-12')
     expect(html).not.toContain('#130')
   })
 
-  test("l'inglese è la lingua di default, l'italiano si sceglie", () => {
-    const s = conAggiornamento(conPassi(5), { decisioni: [{ domanda: 'Q?' }] })
-    const pagina = (lingua: 'en' | 'it') => renderPagina({ stato: s, config: { ...CONFIG, lingua }, progetto: 'p', ora: 0, numero: 1, immagini: {} })
-    expect(CONFIG.lingua).toBe('en')
-    expect(pagina('en')).toContain('Needs you')
-    expect(pagina('en')).toContain('0 of 5 steps done')
-    expect(pagina('en')).not.toContain('Serve da te')
-    expect(pagina('it')).toContain('0 di 5 passi fatti')
+  test('English is the default language, Italian can be chosen', () => {
+    const s = withToolUpdate(withSteps(5), { decisions: [{ question: 'Q?' }], blocks: [{ name: 'Block A', pr: { state: 'merged' } }] })
+    expect(CONFIG.language).toBe('en')
+    expect(page(s)).toContain('0 of 5 steps done')
+    expect(page(s)).toContain('>merged<')
+    expect(page(s)).not.toContain('Serve da te')
+    const it = page(s, { ...CONFIG, language: 'it' })
+    expect(it).toContain('0 di 5 passi fatti')
+    expect(it).toContain('Serve da te')
+    expect(it).toContain('>fusa<')
   })
 
-  test('colori: tema scelto, personalizzati sopra, valori non esadecimali scartati', () => {
-    const c = leggiConfig({ tema: 'tenue', colore_accento: '#FF0066', colore_fatto: 'red; } body { display:none' }, { colori: { sfondo: '#000' } })
-    expect(c.tema).toBe('tenue')
-    expect(c.colori.accento).toBe('#ff0066')
-    expect(c.colori.fatto).toBe(null)
-    expect(c.colori.sfondo).toBe('#000')
-    const html = renderPagina({ stato: conPassi(5), config: c, progetto: 'p', ora: 0, numero: 1, immagini: {} })
+  test('colours: chosen theme, custom ones on top, non-hex values dropped', () => {
+    const c = readConfig({ theme: 'muted', color_accent: '#FF0066', color_done: 'red; } body { display:none' }, { colors: { background: '#000' } })
+    expect(c.theme).toBe('muted')
+    expect(c.colors.accent).toBe('#ff0066')
+    expect(c.colors.done).toBe(null)
+    expect(c.colors.background).toBe('#000')
+    const html = page(withSteps(5), c)
     expect(html).toContain('--accent: #ff0066;')
     expect(html).toContain('--ok: #4f8a6b;')
     expect(html).not.toContain('display:none')
   })
 
-  test('dettaglio: passi fatti, motivi, contesto, conteggi e barre si spengono', () => {
-    let s = conTaskAggiornato(conPassi(5), { taskId: '1', status: 'completed' })
-    s = conAggiornamento(s, { bloccati: [{ passo: 'Passo 4', motivo: 'MOTIVO-X' }], decisioni: [{ domanda: 'Q?', contesto: 'CONTESTO-Y' }] })
-    const c = leggiConfig({ mostra_passi_fatti: false }, { dettaglio: { motivi_blocco: false, contesto_decisioni: false, conteggi_stato: false, barre: false } })
-    const html = renderPagina({ stato: s, config: c, progetto: 'p', ora: 0, numero: 1, immagini: {} })
-    expect(html).not.toContain('Passo 1<')
+  test('detail: done steps, reasons, context, counts and bars can be turned off', () => {
+    let s = withTaskUpdated(withSteps(5), { taskId: '1', status: 'completed' })
+    s = withToolUpdate(s, { blocked: [{ step: 'Step 4', reason: 'REASON-X' }], decisions: [{ question: 'Q?', context: 'CONTEXT-Y' }] })
+    const c = readConfig({ show_done_steps: false }, { detail: { block_reasons: false, decision_context: false, status_counts: false, progress_bars: false } })
+    const html = page(s, c)
+    expect(html).not.toContain('Step 1<')
     expect(html).toContain('1 completed step hidden')
-    expect(html).not.toContain('MOTIVO-X')
-    expect(html).not.toContain('CONTESTO-Y')
+    expect(html).not.toContain('REASON-X')
+    expect(html).not.toContain('CONTEXT-Y')
     expect(html).not.toContain('role="progressbar"')
     expect(html).not.toContain('class="chips"><span class="pill')
   })
 })
 
-// ------------------------------------------------------------ giro completo
+// ------------------------------------------------------------ end to end
 
-function mondo(on: On, registrati: string[] = []) {
-  const scritti: Record<string, string> = {}
-  const pubblicazioni: Record<string, unknown>[] = []
-  let prossimoId = 0
+function world(on: On, registered: string[] = []) {
+  const written: Record<string, string> = {}
+  const publishes: Record<string, unknown>[] = []
+  let nextId = 0
   on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('session.root', () => ({ value: '/progetto' }))
-  on('session.id', () => ({ value: 'sessione-1' }))
-  on('fs.exists', ($, e) => ({ value: e.path in scritti }))
-  on('fs.write', ($, e) => { scritti[e.path] = e.text; return { value: undefined } })
-  on('fs.read', ($, e) => (e.path in scritti ? { value: scritti[e.path]! } : { deny: 'ENOENT' }))
+  on('session.root', () => ({ value: '/project' }))
+  on('session.id', () => ({ value: 'session-1' }))
+  on('fs.exists', ($, e) => ({ value: e.path in written }))
+  on('fs.write', ($, e) => { written[e.path] = e.text; return { value: undefined } })
+  on('fs.read', ($, e) => (e.path in written ? { value: written[e.path]! } : { deny: 'ENOENT' }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('tool.register', ($, e) => { registrati.push(e.name); return { value: { tool: `mcp__navigator__${e.name}` } } })
+  on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__navigator__${e.name}` } } })
   on('tool.list', () => ({ value: [{ name: 'Artifact', description: '', mcp: false }] }))
-  on('tool.call', { tool: 'TaskCreate' }, () => ({ result: { task: { id: String(++prossimoId), subject: '' } } }))
+  on('tool.call', { tool: 'TaskCreate' }, () => ({ result: { task: { id: String(++nextId), subject: '' } } }))
   on('tool.call', { tool: 'TaskUpdate' }, ($, e) => ({ result: { success: true, taskId: e.taskId, updatedFields: [] } }))
   on('tool.call', { tool: 'Artifact' }, ($, e) => {
-    pubblicazioni.push(e as unknown as Record<string, unknown>)
+    publishes.push(e as unknown as Record<string, unknown>)
     return { result: { url: 'https://claude.ai/code/artifact/abc-123', path: String(e.file_path) } }
   })
-  return { scritti, pubblicazioni }
+  return { written, publishes }
 }
 
-test('5 passi: prima pubblicazione con link, poi stesso indirizzo', async ($, on) => {
+test('5 steps: first publish with the link, then the same address', async ($, on) => {
   const clock = mock.clock(on, { now: Date.UTC(2026, 9, 13, 12, 0) })
   mock.store(on)
-  const sessione = mock.session(on)
-  const { scritti, pubblicazioni } = mondo(on)
-  await $.session.start({ cwd: '/progetto', surface: 'terminal', isInteractive: true })
+  const session = mock.session(on)
+  const { written, publishes } = world(on)
+  await $.session.start({ cwd: '/project', surface: 'terminal', isInteractive: true })
 
-  for (let i = 1; i <= 4; i++) await $.tool.call({ tool: 'TaskCreate', subject: `[Base] Passo ${i}`, description: '' })
+  for (let i = 1; i <= 4; i++) await $.tool.call({ tool: 'TaskCreate', subject: `[Base] Step ${i}`, description: '' })
   await clock.advance(2000)
-  expect(pubblicazioni).toHaveLength(0)
+  expect(publishes).toHaveLength(0)
 
-  await $.tool.call({ tool: 'TaskCreate', subject: '[Base] Passo 5', description: '' })
+  await $.tool.call({ tool: 'TaskCreate', subject: '[Base] Step 5', description: '' })
   await clock.advance(2000)
-  expect(pubblicazioni).toHaveLength(1)
-  expect(pubblicazioni[0]).toMatchObject({ action: 'publish', file_path: '/progetto/.claude/navigator/sessione-1.html', icon: 'chart' })
-  expect(scritti['/progetto/.claude/navigator/.gitignore']).toBe('*\n')
-  const testi = sessione.appended().map(r => JSON.stringify(r.message.content))
-  expect(testi.some(t => t.includes('https://claude.ai/code/artifact/abc-123'))).toBe(true)
+  expect(publishes).toHaveLength(1)
+  expect(publishes[0]).toMatchObject({ action: 'publish', file_path: '/project/.claude/navigator/session-1.html', icon: 'chart' })
+  expect(written['/project/.claude/navigator/.gitignore']).toBe('*\n')
+  const texts = session.appended().map(r => JSON.stringify(r.message.content))
+  expect(texts.some(t => t.includes('https://claude.ai/code/artifact/abc-123'))).toBe(true)
 
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
   await clock.advance(2000)
-  expect(pubblicazioni).toHaveLength(1)
+  expect(publishes).toHaveLength(1)
 
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
   await clock.advance(2000)
-  expect(pubblicazioni).toHaveLength(2)
-  expect(pubblicazioni[1]).toMatchObject({ url: 'https://claude.ai/code/artifact/abc-123' })
-  expect(pubblicazioni[1]!.icon).toBeUndefined()
-  expect(scritti['/progetto/.claude/navigator/sessione-1.html']).toContain('>20%<')
+  expect(publishes).toHaveLength(2)
+  expect(publishes[1]).toMatchObject({ url: 'https://claude.ai/code/artifact/abc-123' })
+  expect(publishes[1]!.icon).toBeUndefined()
+  expect(written['/project/.claude/navigator/session-1.html']).toContain('>20%<')
 })
 
-test('spento nella configurazione: niente strumento, niente pubblicazioni', { options: { attivo: false } }, async ($, on) => {
+test('disabled in the settings: no tool, no publishes', { options: { enabled: false } }, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
-  const registrati: string[] = []
-  const { pubblicazioni } = mondo(on, registrati)
-  await $.session.start({ cwd: '/progetto', surface: 'terminal', isInteractive: true })
-  for (let i = 1; i <= 6; i++) await $.tool.call({ tool: 'TaskCreate', subject: `Passo ${i}`, description: '' })
+  const registered: string[] = []
+  const { publishes } = world(on, registered)
+  await $.session.start({ cwd: '/project', surface: 'terminal', isInteractive: true })
+  for (let i = 1; i <= 6; i++) await $.tool.call({ tool: 'TaskCreate', subject: `Step ${i}`, description: '' })
   await clock.advance(5000)
-  expect(registrati).toHaveLength(0)
-  expect(pubblicazioni).toHaveLength(0)
+  expect(registered).toHaveLength(0)
+  expect(publishes).toHaveLength(0)
 })

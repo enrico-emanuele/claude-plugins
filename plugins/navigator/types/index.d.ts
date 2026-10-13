@@ -1,53 +1,55 @@
-export type NavigatorStatoPasso = 'da_fare' | 'in_corso' | 'fatto'
+export type NavigatorStepStatus = 'todo' | 'in_progress' | 'done'
 
-export type NavigatorPasso = {
+export type NavigatorStep = {
   id: string
-  titolo: string
-  blocco: string | null
-  stato: NavigatorStatoPasso
+  title: string
+  block: string | null
+  status: NavigatorStepStatus
 }
 
-export type NavigatorFermo = { passo: string; motivo: string }
+export type NavigatorBlocker = { step: string; reason: string }
 
-export type NavigatorDecisione = { domanda: string; contesto?: string; blocco?: string }
+export type NavigatorDecision = { question: string; context?: string; block?: string }
 
-export type NavigatorTest = { passati: number; totali: number; nota?: string }
+export type NavigatorTests = { passed: number; total: number; note?: string }
 
-export type NavigatorPR = { stato: string; numero?: string; url?: string; titolo?: string }
+export type NavigatorPrState = 'draft' | 'open' | 'in_review' | 'approved' | 'merged' | 'closed'
 
-export type NavigatorScreenshot = { percorso: string; didascalia?: string }
+export type NavigatorPr = { state: NavigatorPrState | string; number?: string; url?: string; title?: string }
 
-export type NavigatorBlocco = {
-  nome: string
-  requisiti?: string[]
-  test?: NavigatorTest
-  pr?: NavigatorPR
-  screenshot?: NavigatorScreenshot[]
+export type NavigatorScreenshot = { path: string; caption?: string }
+
+export type NavigatorBlock = {
+  name: string
+  requirements?: string[]
+  tests?: NavigatorTests
+  pr?: NavigatorPr
+  screenshots?: NavigatorScreenshot[]
 }
 
-export type NavigatorFonte = 'task' | 'todo' | 'strumento'
+export type NavigatorSource = 'task' | 'todo' | 'tool'
 
-export type NavigatorStato = {
-  isAttivo: boolean
-  isSpento: boolean
-  isForzato: boolean
-  titolo: string | null
-  fonte: NavigatorFonte | null
-  passi: NavigatorPasso[]
-  fermi: NavigatorFermo[]
-  decisioni: NavigatorDecisione[]
-  blocchi: NavigatorBlocco[]
-  revisione: number
-  revisionePubblicata: number
+export type NavigatorState = {
+  isActive: boolean
+  isOff: boolean
+  isForced: boolean
+  title: string | null
+  source: NavigatorSource | null
+  steps: NavigatorStep[]
+  blockers: NavigatorBlocker[]
+  decisions: NavigatorDecision[]
+  blocks: NavigatorBlock[]
+  revision: number
+  publishedRevision: number
   url: string | null
   file: string | null
-  pubblicazioni: number
-  ultimaPubblicazione: number | null
-  errore: string | null
+  publishCount: number
+  lastPublishedAt: number | null
+  error: string | null
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    navigator: { stato: NavigatorStato }
+    navigator: { state: NavigatorState }
   }
 }

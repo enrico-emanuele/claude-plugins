@@ -1,174 +1,174 @@
 {
   "name": "navigator",
-  "version": "0.2.0",
-  "description": "Nei lavori lunghi pubblica da solo una pagina HTML di avanzamento, sempre allo stesso indirizzo.",
+  "version": "0.3.0",
+  "description": "On long jobs, publishes an HTML progress page on its own, always at the same address.",
   "author": {
     "name": "Logix"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
-    "attivo": {
+    "enabled": {
       "type": "boolean",
-      "title": "Navigator attivo",
-      "description": "Crea e aggiorna da solo il navigator nei lavori lunghi.",
+      "title": "Navigator enabled",
+      "description": "Creates and updates the progress page on its own during long jobs.",
       "default": true
     },
-    "soglia_passi": {
+    "step_threshold": {
       "type": "number",
-      "title": "Soglia di passi",
-      "description": "Il navigator parte quando il piano di lavoro arriva a questo numero di passi.",
+      "title": "Step threshold",
+      "description": "The page starts when the plan reaches this number of steps.",
       "default": 5
     },
-    "cadenza": {
+    "cadence": {
       "type": "string",
-      "title": "Cadenza di ripubblicazione",
-      "description": "passo-chiuso: a ogni passo chiuso e subito su blocchi e decisioni. ogni-cambio: a ogni cambio di stato. solo-blocchi: quando un blocco intero si chiude e su blocchi e decisioni.",
+      "title": "Republish cadence",
+      "description": "step-done: on every finished step. every-change: on every state change. block-done: when a whole block finishes. All three republish at once on blocked steps, new decisions and the end of the job.",
       "options": [
-        "passo-chiuso",
-        "ogni-cambio",
-        "solo-blocchi"
+        "step-done",
+        "every-change",
+        "block-done"
       ],
-      "default": "passo-chiuso"
+      "default": "step-done"
     },
-    "sezione_requisiti": {
-      "type": "boolean",
-      "title": "Sezione requisiti",
-      "description": "Mostra i requisiti coperti da ogni blocco.",
-      "default": true
-    },
-    "sezione_test": {
-      "type": "boolean",
-      "title": "Sezione test",
-      "description": "Mostra quanti test passano per ogni blocco.",
-      "default": true
-    },
-    "sezione_pr": {
-      "type": "boolean",
-      "title": "Sezione PR",
-      "description": "Mostra la pull request di ogni blocco con il suo stato.",
-      "default": true
-    },
-    "sezione_screenshot": {
-      "type": "boolean",
-      "title": "Sezione screenshot",
-      "description": "Mostra gli screenshot dell'interfaccia di ogni blocco.",
-      "default": true
-    },
-    "lingua": {
+    "language": {
       "type": "string",
-      "title": "Lingua della pagina",
-      "description": "Lingua della pagina pubblicata: en (inglese) o it (italiano).",
+      "title": "Page language",
+      "description": "Language of the published page: en (English) or it (Italian).",
       "options": [
         "en",
         "it"
       ],
       "default": "en"
     },
-    "tema": {
+    "theme": {
       "type": "string",
-      "title": "Tema dei colori",
-      "description": "Tavolozza di partenza: standard, alto-contrasto o tenue. I colori personalizzati la sovrascrivono.",
+      "title": "Colour theme",
+      "description": "Starting palette: standard, high-contrast or muted. Custom colours override it.",
       "options": [
         "standard",
-        "alto-contrasto",
-        "tenue"
+        "high-contrast",
+        "muted"
       ],
       "default": "standard"
     },
-    "colore_sfondo": {
+    "color_background": {
       "type": "string",
-      "title": "Colore: sfondo",
-      "description": "Colore dello sfondo della pagina, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: background",
+      "description": "Page background, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_superficie": {
+    "color_surface": {
       "type": "string",
-      "title": "Colore: superficie",
-      "description": "Colore dei riquadri (riepilogo e blocchi), in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: surface",
+      "description": "Panels (summary and blocks), as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_testo": {
+    "color_text": {
       "type": "string",
-      "title": "Colore: testo",
-      "description": "Colore del testo, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: text",
+      "description": "Text, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_accento": {
+    "color_accent": {
       "type": "string",
-      "title": "Colore: accento",
-      "description": "Colore di accento (link, occhiello, etichette), in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: accent",
+      "description": "Accent: links, eyebrow, labels, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_fatto": {
+    "color_done": {
       "type": "string",
-      "title": "Colore: fatto",
-      "description": "Colore dello stato «fatto» e delle barre, in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: done",
+      "description": "\"Done\" state and progress bars, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_in_corso": {
+    "color_in_progress": {
       "type": "string",
-      "title": "Colore: in corso",
-      "description": "Colore dello stato «in corso», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: in progress",
+      "description": "\"In progress\" state, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_bloccato": {
+    "color_blocked": {
       "type": "string",
-      "title": "Colore: bloccato",
-      "description": "Colore dello stato «bloccato», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: blocked",
+      "description": "\"Blocked\" state, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_da_fare": {
+    "color_todo": {
       "type": "string",
-      "title": "Colore: da fare",
-      "description": "Colore dello stato «da fare», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: todo",
+      "description": "\"To do\" state, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "colore_attenzione": {
+    "color_attention": {
       "type": "string",
-      "title": "Colore: attenzione",
-      "description": "Colore della sezione «Serve da te», in esadecimale (es. #1d5fc4). Vuoto = quello del tema. Vale per il tema chiaro e per lo scuro.",
+      "title": "Colour: attention",
+      "description": "The \"Needs you\" section, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
-    "mostra_passi_fatti": {
+    "section_requirements": {
       "type": "boolean",
-      "title": "Mostra i passi fatti",
-      "description": "Elenca anche i passi fatti; spento, li conta soltanto.",
+      "title": "Requirements section",
+      "description": "Shows the requirements covered by each block.",
       "default": true
     },
-    "mostra_motivi_blocco": {
+    "section_tests": {
       "type": "boolean",
-      "title": "Mostra i motivi dei blocchi",
-      "description": "Mostra perché un passo è fermo.",
+      "title": "Tests section",
+      "description": "Shows how many tests pass for each block.",
       "default": true
     },
-    "mostra_contesto_decisioni": {
+    "section_pr": {
       "type": "boolean",
-      "title": "Mostra il contesto delle decisioni",
-      "description": "Mostra il contesto sotto ogni decisione da prendere.",
+      "title": "PR section",
+      "description": "Shows each block's pull request and its state.",
       "default": true
     },
-    "mostra_conteggi_stato": {
+    "section_screenshots": {
       "type": "boolean",
-      "title": "Mostra i conteggi per stato",
-      "description": "Mostra quanti passi sono in corso, bloccati, da fare e fatti.",
+      "title": "Screenshots section",
+      "description": "Shows the interface screenshots of each block.",
       "default": true
     },
-    "mostra_barre": {
+    "show_done_steps": {
       "type": "boolean",
-      "title": "Mostra le barre di avanzamento",
-      "description": "Mostra le barre di avanzamento complessiva, dei blocchi e dei test.",
+      "title": "Show done steps",
+      "description": "Lists done steps too; off, it only counts them.",
       "default": true
     },
-    "comprimi_blocchi_chiusi": {
+    "show_block_reasons": {
       "type": "boolean",
-      "title": "Comprimi i blocchi chiusi",
-      "description": "Mostra chiusi i blocchi con tutti i passi fatti.",
+      "title": "Show block reasons",
+      "description": "Shows why a step is blocked.",
       "default": true
     },
-    "mostra_note_test": {
+    "show_decision_context": {
       "type": "boolean",
-      "title": "Mostra le note dei test",
-      "description": "Mostra la nota sotto il conteggio dei test.",
+      "title": "Show decision context",
+      "description": "Shows the context under each decision to make.",
+      "default": true
+    },
+    "show_status_counts": {
+      "type": "boolean",
+      "title": "Show status counts",
+      "description": "Shows how many steps are in progress, blocked, to do and done.",
+      "default": true
+    },
+    "show_progress_bars": {
+      "type": "boolean",
+      "title": "Show progress bars",
+      "description": "Shows the overall, block and test progress bars.",
+      "default": true
+    },
+    "collapse_done_blocks": {
+      "type": "boolean",
+      "title": "Collapse done blocks",
+      "description": "Collapses blocks whose steps are all done.",
+      "default": true
+    },
+    "show_test_notes": {
+      "type": "boolean",
+      "title": "Show test notes",
+      "description": "Shows the note under the test count.",
       "default": true
     }
   }
