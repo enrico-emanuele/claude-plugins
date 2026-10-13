@@ -5,6 +5,7 @@ import type {
   NavigatorBlock,
   NavigatorBlocker,
   NavigatorDecision,
+  NavigatorEvent,
   NavigatorState,
   NavigatorStep,
   NavigatorStepStatus,
@@ -34,12 +35,19 @@ export type Detail = {
   progressBars: boolean
   collapseDoneBlocks: boolean
   testNotes: boolean
+  events: boolean
+  times: boolean
+  agents: boolean
 }
 
 export type Config = {
   isEnabled: boolean
   threshold: number
   cadence: Cadence
+  /** At the end of a turn, also publish what the cadence left unpublished. */
+  publishAtTurnEnd: boolean
+  /** A push notification when a step is blocked or a decision opens. */
+  notify: boolean
   sections: Sections
   language: Language
   theme: Theme
@@ -65,6 +73,8 @@ export const INITIAL_STATE: NavigatorState = {
   blockers: [],
   decisions: [],
   blocks: [],
+  startedAt: null,
+  events: [],
   revision: 0,
   publishedRevision: 0,
   url: null,
@@ -72,6 +82,8 @@ export const INITIAL_STATE: NavigatorState = {
   publishCount: 0,
   lastPublishedAt: null,
   error: null,
+  isPaused: false,
+  uploaded: [],
 }
 
 // ---------------------------------------------------------------- settings
@@ -113,6 +125,8 @@ export function readConfig(options: Options, override: unknown): Config {
     isEnabled: asBool(options.enabled, true),
     threshold: asThreshold(options.step_threshold, 5),
     cadence: asCadence(options.cadence, 'step-done'),
+    publishAtTurnEnd: asBool(options.publish_at_turn_end, true),
+    notify: asBool(options.notify, true),
     sections: {
       requirements: asBool(options.section_requirements, true),
       tests: asBool(options.section_tests, true),
@@ -130,6 +144,9 @@ export function readConfig(options: Options, override: unknown): Config {
       progressBars: asBool(options.show_progress_bars, true),
       collapseDoneBlocks: asBool(options.collapse_done_blocks, true),
       testNotes: asBool(options.show_test_notes, true),
+      events: asBool(options.show_events, true),
+      times: asBool(options.show_times, true),
+      agents: asBool(options.show_agents, true),
     },
   }
   if (override === null || typeof override !== 'object') return base
@@ -143,6 +160,8 @@ export function readConfig(options: Options, override: unknown): Config {
     isEnabled: asBool(o.enabled, base.isEnabled),
     threshold: asThreshold(o.step_threshold, base.threshold),
     cadence: asCadence(o.cadence, base.cadence),
+    publishAtTurnEnd: asBool(o.publish_at_turn_end, base.publishAtTurnEnd),
+    notify: asBool(o.notify, base.notify),
     sections: {
       requirements: asBool(s.requirements, base.sections.requirements),
       tests: asBool(s.tests, base.sections.tests),
@@ -160,6 +179,9 @@ export function readConfig(options: Options, override: unknown): Config {
       progressBars: asBool(d.progress_bars, base.detail.progressBars),
       collapseDoneBlocks: asBool(d.collapse_done_blocks, base.detail.collapseDoneBlocks),
       testNotes: asBool(d.test_notes, base.detail.testNotes),
+      events: asBool(d.events, base.detail.events),
+      times: asBool(d.times, base.detail.times),
+      agents: asBool(d.agents, base.detail.agents),
     },
   }
 }
@@ -183,10 +205,23 @@ const withRevision = (s: NavigatorState, change: Partial<NavigatorState>): Navig
   revision: s.revision + 1,
 })
 
+/** Every step of the job is done. */
+export const isFinished = (s: NavigatorState) => s.steps.length > 0 && s.steps.every(p => p.status === 'done')
+
+/**
+ * A new job in the same session: the old one is finished and a new plan
+ * arrives. Steps and the data that went with them start over; the address,
+ * the publish count and the uploaded screenshots stay.
+ */
+export const asNewJob = (s: NavigatorState): NavigatorState => ({
+  ...s, title: null, steps: [], blockers: [], decisions: [], blocks: [], startedAt: null, events: [],
+})
+
 export function withTaskCreated(s: NavigatorState, id: string, subject: string): NavigatorState {
   const step: NavigatorStep = { id, ...splitBlock(subject), status: 'todo' }
-  const steps = s.source === 'task' ? s.steps.filter(p => p.id !== id) : []
-  return withRevision(s, { source: 'task', steps: [...steps, step] })
+  const base = s.source === 'task' && isFinished(s) ? asNewJob(s) : s
+  const steps = base.source === 'task' ? base.steps.filter(p => p.id !== id) : []
+  return withRevision(base, { source: 'task', steps: [...steps, step] })
 }
 
 export function withTaskUpdated(
@@ -206,16 +241,39 @@ export function withTaskUpdated(
   return withRevision(s, { steps })
 }
 
+const slug = (t: string) =>
+  t.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+
+/**
+ * Ids that follow the title, not the position: reordering or inserting a todo
+ * keeps every other step's id, so blockers and "step done" stay on their step.
+ */
+function titleIds(prefix: string, titles: readonly string[]): string[] {
+  const seen = new Map<string, number>()
+  return titles.map((t, i) => {
+    const key = slug(splitBlock(t).title) || String(i + 1)
+    const n = (seen.get(key) ?? 0) + 1
+    seen.set(key, n)
+    return `${prefix}-${key}${n > 1 ? `-${n}` : ''}`
+  })
+}
+
+/** The list handed over replaces a finished job with one that has nothing done yet. */
+const startsNewJob = (s: NavigatorState, statuses: readonly NavigatorStepStatus[]) =>
+  isFinished(s) && statuses.length > 0 && statuses.every(x => x !== 'done')
+
 export function withTodos(
   s: NavigatorState,
   todos: readonly { content: string; status: string }[],
 ): NavigatorState {
+  const ids = titleIds('todo', todos.map(t => t.content))
   const steps = todos.map((t, i) => ({
-    id: `todo-${i + 1}`,
+    id: ids[i]!,
     ...splitBlock(t.content),
     status: fromTaskStatus(t.status),
   }))
-  return withRevision(s, { source: 'todo', steps })
+  const base = startsNewJob(s, steps.map(p => p.status)) ? asNewJob(s) : s
+  return withRevision(base, { source: 'todo', steps })
 }
 
 // ---------------------------------------------------------------- tool
@@ -235,14 +293,19 @@ export type ToolUpdate = {
  * field by field.
  */
 export function withToolUpdate(s: NavigatorState, a: ToolUpdate): NavigatorState {
+  if (Array.isArray(a.steps) && (s.source === null || s.source === 'tool')) {
+    const statuses = a.steps.map(p => (p.status === 'done' || p.status === 'in_progress' ? p.status : 'todo'))
+    if (startsNewJob(s, statuses)) s = asNewJob(s)
+  }
   const change: Partial<NavigatorState> = {}
   if (typeof a.title === 'string' && a.title.trim() !== '') change.title = a.title.trim()
   if (Array.isArray(a.steps) && (s.source === null || s.source === 'tool')) {
     change.source = 'tool'
+    const ids = titleIds('step', a.steps.map(p => p.title))
     change.steps = a.steps.map((p, i) => {
       const name = splitBlock(p.title)
       return {
-        id: `step-${i + 1}`,
+        id: ids[i]!,
         title: name.title,
         block: p.block?.trim() || name.block,
         status: p.status === 'done' || p.status === 'in_progress' ? p.status : 'todo',
@@ -305,6 +368,67 @@ export function groupSteps(s: NavigatorState): Group[] {
   return groups
 }
 
+// ---------------------------------------------------------------- history
+
+const MAX_EVENTS = 10
+
+const blockerKey = (f: NavigatorBlocker) => normal(f.step)
+
+/**
+ * Stamps what changed from `before` to `after` at `now`: when the job started,
+ * when each step reached its status, since when each blocker holds, and the
+ * events for the page's recent list. A new job (startedAt back to null)
+ * compares against an empty one.
+ */
+export function withHistory(before: NavigatorState, after: NavigatorState, now: number): NavigatorState {
+  if (after.revision === before.revision) return after
+  // asNewJob clears startedAt: what was there belongs to the old job.
+  const isReset = after.startedAt === null && before.startedAt !== null
+  const prev = isReset ? INITIAL_STATE : before
+  const isNew = after.startedAt === null
+  const steps = after.steps.map(p => {
+    const old = prev.steps.find(x => x.id === p.id)
+    return old && old.status === p.status && old.since !== undefined ? { ...p, since: old.since } : { ...p, since: now }
+  })
+  const blockers = after.blockers.map(f => {
+    const old = prev.blockers.find(x => blockerKey(x) === blockerKey(f))
+    return { ...f, since: old?.since ?? now }
+  })
+  const events: NavigatorEvent[] = []
+  const add = (kind: NavigatorEvent['kind'], text: string) => events.push({ at: now, kind, text })
+  if (isNew && steps.length > 0) add('job_started', after.title ?? '')
+  const doneBefore = new Set(prev.steps.filter(p => p.status === 'done').map(p => p.id))
+  for (const p of steps) if (p.status === 'done' && !doneBefore.has(p.id)) add('step_done', p.title)
+  for (const f of blockers) {
+    if (!prev.blockers.some(x => blockerKey(x) === blockerKey(f))) add('step_blocked', `${splitBlock(f.step).title}: ${f.reason}`)
+  }
+  for (const f of prev.blockers) {
+    const step = steps.find(p => p.id === f.step || p.title.toLowerCase() === blockerKey(f))
+    if (!blockers.some(x => blockerKey(x) === blockerKey(f)) && step?.status !== 'done') add('step_unblocked', splitBlock(f.step).title)
+  }
+  const questions = (d: readonly NavigatorDecision[]) => new Set(d.map(x => x.question.trim()))
+  const qBefore = questions(prev.decisions)
+  const qAfter = questions(after.decisions)
+  for (const q of qAfter) if (!qBefore.has(q)) add('decision_opened', q)
+  for (const q of qBefore) if (!qAfter.has(q)) add('decision_closed', q)
+  const next = { ...after, steps, blockers }
+  const blocksBefore = doneBlocks(prev)
+  for (const name of doneBlocks(next)) if (name !== '' && !blocksBefore.has(name)) add('block_done', name)
+  if (isFinished(next) && !isFinished(prev)) add('job_done', after.title ?? '')
+  return {
+    ...next,
+    startedAt: after.startedAt ?? (steps.length > 0 ? now : null),
+    events: [...after.events, ...events].slice(-MAX_EVENTS),
+  }
+}
+
+/** What happened that the user should hear about even away from the page. */
+export function attentionEvents(before: NavigatorState, after: NavigatorState): NavigatorEvent[] {
+  const known = new Set(before.events.map(x => `${x.at}|${x.kind}|${x.text}`))
+  return after.events.filter(x =>
+    (x.kind === 'step_blocked' || x.kind === 'decision_opened') && !known.has(`${x.at}|${x.kind}|${x.text}`))
+}
+
 // ---------------------------------------------------------------- rules
 
 /** Starts once per session: at the threshold, or by hand with /navigator publish. */
@@ -360,3 +484,34 @@ export function publishReason(
 
 /** There are changes not yet published. */
 export const isDirty = (s: NavigatorState) => s.revision !== s.publishedRevision
+
+// ---------------------------------------------------------------- publishing
+
+export type PublishFailure = 'denied' | 'gone' | 'transient'
+
+/** The artifact at the old address is gone or cannot be updated from this session. */
+const GONE = /not found|no longer exists|does not exist|deleted|\b404\b|not (?:the )?owner|no edit access|not a writer|cannot be updated|can(?:no|')t update|has (?:not|neither) read/i
+
+/**
+ * What a failed Artifact call means. A deny is the person (or a rule) saying
+ * no: ask again only when they say so. Only an artifact that is really gone
+ * gets a new address; anything else is retried at the same one.
+ */
+export function classifyFailure(r: { deny?: string; isError?: boolean; text?: string; result?: unknown }): PublishFailure {
+  if (r.deny !== undefined) return 'denied'
+  return GONE.test(failureText(r)) ? 'gone' : 'transient'
+}
+
+/** The error's words: what the model would read, else the tool's own record. */
+export const failureText = (r: { text?: string; result?: unknown }): string =>
+  r.text ?? (typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? 'unknown error'))
+
+/** A short stable name for a file: FNV-1a, 8 hex digits. */
+export function hashName(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
+}

@@ -1,0 +1,28 @@
+name: plugins
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        # Pinned: the plugin API is early access and can change between releases.
+        run: npm install -g @anthropic-ai/claude-code@2.1.296
+      - name: Validate the marketplace
+        run: claude plugin validate .
+      - name: Validate and test each plugin
+        run: |
+          for dir in plugins/*/; do
+            echo "::group::$dir"
+            claude plugin validate "$dir"
+            claude plugin test "$dir"
+            echo "::endgroup::"
+          done

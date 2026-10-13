@@ -2,7 +2,7 @@
 // Summary first, then what needs the user, then the blocks with their steps.
 // Language, theme, colours and detail come from the settings.
 
-import type { NavigatorState, NavigatorStep } from '../types'
+import type { NavigatorAgent, NavigatorEventKind, NavigatorState, NavigatorStep } from '../types'
 import type { ColorKey, Config, Group, Language, ShownStatus, Theme } from './logic'
 import { COLOR_KEYS, blockerOf, groupSteps, percent, shownStatus } from './logic'
 
@@ -12,8 +12,10 @@ export type PageData = {
   project: string
   now: number
   number: number
-  /** screenshot path → data URI, or null when it could not be read */
+  /** screenshot path → what the page loads (a published file or a data URI), or null when it could not be read */
   images: Readonly<Record<string, string | null>>
+  /** subagents at work when the page was rendered */
+  agents?: readonly NavigatorAgent[]
 }
 
 // ---------------------------------------------------------------- texts
@@ -39,7 +41,17 @@ const TEXTS = {
     pr: 'PR',
     screenshots: 'Screenshots',
     missingImage: 'Image not readable',
-    footer: 'Updated by Claude Code as the work moves. This page refreshes on its own.',
+    footer: 'Claude Code republishes this page at the same address as the work moves. Reload it to see the latest version.',
+    started: 'Started',
+    elapsed: 'running for',
+    since: 'for',
+    agents: (n: number) => (n === 1 ? '1 agent at work' : `${n} agents at work`),
+    events: 'Recent events',
+    eventKind: {
+      job_started: 'Job started', step_done: 'Step done', step_blocked: 'Step blocked', step_unblocked: 'Step unblocked',
+      decision_opened: 'Decision to make', decision_closed: 'Decision made', block_done: 'Block done', job_done: 'Job done',
+    } satisfies Record<NavigatorEventKind, string>,
+    units: { day: 'd', hour: 'h', minute: 'min', underMinute: '<1 min' },
     status: { todo: 'to do', in_progress: 'in progress', done: 'done', blocked: 'blocked' },
     prState: { draft: 'draft', open: 'open', in_review: 'in review', approved: 'approved', merged: 'merged', closed: 'closed' } as Record<string, string>,
     locale: 'en-GB',
@@ -64,7 +76,17 @@ const TEXTS = {
     pr: 'PR',
     screenshots: 'Screenshot',
     missingImage: 'Immagine non leggibile',
-    footer: 'Aggiornato da Claude Code a ogni avanzamento. Questa pagina si rinnova da sola.',
+    footer: 'Claude Code ripubblica questa pagina allo stesso indirizzo a ogni avanzamento. Ricaricala per vedere l\'ultima versione.',
+    started: 'Iniziato',
+    elapsed: 'in corso da',
+    since: 'da',
+    agents: (n: number) => (n === 1 ? '1 agente al lavoro' : `${n} agenti al lavoro`),
+    events: 'Ultimi eventi',
+    eventKind: {
+      job_started: 'Lavoro iniziato', step_done: 'Passo fatto', step_blocked: 'Passo fermo', step_unblocked: 'Passo sbloccato',
+      decision_opened: 'Decisione da prendere', decision_closed: 'Decisione presa', block_done: 'Blocco finito', job_done: 'Lavoro finito',
+    } satisfies Record<NavigatorEventKind, string>,
+    units: { day: 'g', hour: 'h', minute: 'min', underMinute: '<1 min' },
     status: { todo: 'da fare', in_progress: 'in corso', done: 'fatto', blocked: 'bloccato' },
     prState: { draft: 'bozza', open: 'aperta', in_review: 'in revisione', approved: 'approvata', merged: 'fusa', closed: 'chiusa' } as Record<string, string>,
     locale: 'it-IT',
@@ -114,11 +136,32 @@ function cssVars(c: PageData['config'], isDark: boolean): string {
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 const esc = (t: unknown) => String(t ?? '').replace(/[&<>"']/g, ch => ESC[ch]!)
 
+/** Screenshots shown per block, the latest ones. */
+export const MAX_SHOTS = 8
+
 const PR_TONE: Record<string, ShownStatus> = {
   draft: 'todo', open: 'in_progress', in_review: 'in_progress', approved: 'done', merged: 'done', closed: 'blocked',
 }
 
 type Ctx = { s: NavigatorState; d: PageData; t: Texts }
+
+/** "2 h 05 min": the client script below keeps the same format. */
+export function duration(ms: number, u: Texts['units']): string {
+  const m = Math.floor(Math.max(0, ms) / 60000)
+  if (m < 1) return u.underMinute
+  const d = Math.floor(m / 1440)
+  const h = Math.floor((m % 1440) / 60)
+  const min = m % 60
+  if (d > 0) return `${d} ${u.day} ${h} ${u.hour}`
+  if (h > 0) return `${h} ${u.hour} ${String(min).padStart(2, '0')} ${u.minute}`
+  return `${min} ${u.minute}`
+}
+
+/** Time elapsed since `since`, kept current by the page's script. */
+const ago = (c: Ctx, since: number | undefined, prefix: string) =>
+  c.d.config.detail.times && since !== undefined && since <= c.d.now
+    ? `<span class="ago">${esc(prefix)} <time data-since="${since}">${duration(c.d.now - since, c.t.units)}</time></span>`
+    : ''
 
 const pill = (c: Ctx, status: ShownStatus) => `<span class="pill s-${status}">${c.t.status[status]}</span>`
 
@@ -138,10 +181,10 @@ function groupStatus(s: NavigatorState, g: Group): ShownStatus {
 
 function stepRow(c: Ctx, p: NavigatorStep): string {
   const status = shownStatus(c.s, p)
-  const blocker = status === 'blocked' && c.d.config.detail.blockReasons ? blockerOf(c.s, p) : undefined
-  return `<li class="step">${pill(c, status)}<span class="step-title">${esc(p.title)}${
-    blocker ? `<span class="reason">${esc(blocker.reason)}</span>` : ''
-  }</span></li>`
+  const blocker = status === 'blocked' ? blockerOf(c.s, p) : undefined
+  const reason = blocker && c.d.config.detail.blockReasons ? `<span class="reason">${esc(blocker.reason)}</span>` : ''
+  const since = status === 'blocked' ? ago(c, blocker?.since, c.t.since) : status === 'in_progress' ? ago(c, p.since, c.t.since) : ''
+  return `<li class="step">${pill(c, status)}<span class="step-title">${esc(p.title)}${since}${reason}</span></li>`
 }
 
 function blockData(c: Ctx, g: Group): string {
@@ -178,7 +221,7 @@ function blockData(c: Ctx, g: Group): string {
   }
   if (sections.screenshots && b.screenshots?.length) {
     const figures = b.screenshots
-      .slice(-4)
+      .slice(-MAX_SHOTS)
       .map(sc => {
         const src = c.d.images[sc.path]
         const caption = esc(sc.caption ?? sc.path.split('/').pop())
@@ -238,6 +281,25 @@ function needsYouSection(c: Ctx): string {
 ${decisions ? `<div><h3>${t.decisions} <span class="num">${s.decisions.length}</span></h3><ul>${decisions}</ul></div>` : ''}
 ${blocked ? `<div><h3>${t.blocked} <span class="num">${blockers.length}</span></h3><ul>${blocked}</ul></div>` : ''}
 </div>
+</section>`
+}
+
+function agentsSection(c: Ctx): string {
+  const agents = c.d.agents ?? []
+  if (!c.d.config.detail.agents || agents.length === 0) return ''
+  return `<section class="agents" aria-label="${esc(c.t.agents(agents.length))}">
+<h2>${esc(c.t.agents(agents.length))}</h2>
+<ul>${agents.map(a => `<li><span class="pill s-in_progress">${esc(a.type)}</span> ${esc(a.description)}</li>`).join('')}</ul>
+</section>`
+}
+
+function eventsSection(c: Ctx): string {
+  if (!c.d.config.detail.events || c.s.events.length === 0) return ''
+  const rows = [...c.s.events].reverse().map(x =>
+    `<li><time class="num" datetime="${new Date(x.at).toISOString()}" data-clock>${fmtUtc(x.at).slice(11)}</time><span class="kind k-${x.kind}">${c.t.eventKind[x.kind]}</span><span class="what">${esc(x.text)}</span></li>`)
+  return `<section class="events" aria-labelledby="events-t">
+<h2 id="events-t">${c.t.events}</h2>
+<ol>${rows.join('')}</ol>
 </section>`
 }
 
@@ -339,15 +401,32 @@ figure { margin: 0; display: grid; gap: .3rem; min-width: 0 }
 figure img { width: 100%; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--bg) }
 figure.missing div { aspect-ratio: 16/10; max-width: 100%; border: 1px dashed var(--line); border-radius: 6px; display: grid; place-items: center; color: var(--muted); font-size: .8rem }
 figcaption { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere }
+.ago { color: var(--muted); font-size: .8rem; margin-left: .5rem; white-space: nowrap }
+.agents, .events { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.25rem; display: grid; gap: .6rem }
+.agents h2, .events h2 { font-size: 1.1rem }
+.agents ul, .events ol { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem }
+.agents li { min-width: 0; overflow-wrap: anywhere }
+.events li { display: grid; grid-template-columns: 4.5rem 10rem 1fr; gap: .6rem; align-items: baseline; min-width: 0 }
+.events time { color: var(--muted); font-size: .8rem }
+.events .kind { font-size: .8rem; font-weight: 600; color: var(--muted) }
+.events .k-step_done, .events .k-block_done, .events .k-job_done, .events .k-decision_closed { color: var(--ok) }
+.events .k-step_blocked, .events .k-decision_opened { color: var(--attn) }
+.events .what { min-width: 0; overflow-wrap: anywhere }
 .foot { color: var(--muted); font-size: .8rem }
-@media (max-width: 30rem) { .row { grid-template-columns: 1fr } .body { padding-left: 1.1rem } .bar.mini { width: 5rem } }
+@media (max-width: 30rem) { .events li { grid-template-columns: 4.5rem 1fr } .events .what { grid-column: 2 } .row { grid-template-columns: 1fr } .body { padding-left: 1.1rem } .bar.mini { width: 5rem } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important } }
 </style>
 <main class="page" lang="${d.config.language}">
 <header class="head">
 <span class="eyebrow">${t.eyebrow} · ${esc(d.project)}</span>
 <h1>${esc(s.title ?? d.project)}</h1>
-<div class="meta"><span>${t.updated}: <time id="updated" datetime="${iso}">${fmtUtc(d.now)}</time></span><span>${t.update} <span class="num">${d.number}</span></span></div>
+<div class="meta"><span>${t.updated}: <time id="updated" datetime="${iso}">${fmtUtc(d.now)}</time></span><span>${t.update} <span class="num">${d.number}</span></span>${
+  d.config.detail.times && s.startedAt !== null
+    ? `<span>${t.started}: <time datetime="${new Date(s.startedAt).toISOString()}" data-clock>${fmtUtc(s.startedAt)}</time>${
+        percent(s.steps) < 100 ? ` · ${ago(c, s.startedAt, t.elapsed)}` : ''
+      }</span>`
+    : ''
+}</div>
 </header>
 <section class="summary" aria-label="${t.overall}">
 <div class="figure"><span class="pct">${pct}%</span><span class="of">${esc(t.stepsDone(done, s.steps.length))}</span></div>
@@ -355,19 +434,43 @@ ${bar(c, pct)}
 ${chips}
 </section>
 ${needsYouSection(c)}
+${agentsSection(c)}
 <section class="blocks" aria-labelledby="blocks-t">
 <h2 id="blocks-t">${t.blocks}</h2>
 ${groups.map(g => blockSection(c, g, groups.length === 1)).join('\n')}
 </section>
+${eventsSection(c)}
 <p class="foot">${t.footer}</p>
 </main>
 <script>
 (function () {
+  var locale = '${t.locale}';
+  var u = ${JSON.stringify(t.units)};
   try {
     var el = document.getElementById('updated');
     var d = new Date(el.getAttribute('datetime'));
-    el.textContent = d.toLocaleString('${t.locale}', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    el.textContent = d.toLocaleString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.querySelectorAll('time[data-clock]').forEach(function (x) {
+      var at = new Date(x.getAttribute('datetime'));
+      var sameDay = at.toDateString() === new Date().toDateString();
+      x.textContent = at.toLocaleString(locale, sameDay ? { hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    });
   } catch (e) {}
+  // Same format as duration() in page.ts.
+  function duration(ms) {
+    var m = Math.floor(Math.max(0, ms) / 60000);
+    if (m < 1) return u.underMinute;
+    var dd = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), min = m % 60;
+    if (dd > 0) return dd + ' ' + u.day + ' ' + h + ' ' + u.hour;
+    if (h > 0) return h + ' ' + u.hour + ' ' + (min < 10 ? '0' : '') + min + ' ' + u.minute;
+    return min + ' ' + u.minute;
+  }
+  function tick() {
+    document.querySelectorAll('time[data-since]').forEach(function (x) {
+      x.textContent = duration(Date.now() - Number(x.getAttribute('data-since')));
+    });
+  }
+  try { tick(); setInterval(tick, 30000); } catch (e) {}
 })();
 </script>
 `

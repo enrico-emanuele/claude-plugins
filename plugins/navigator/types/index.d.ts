@@ -5,9 +5,11 @@ export type NavigatorStep = {
   title: string
   block: string | null
   status: NavigatorStepStatus
+  /** When the step reached its current status (ms since the epoch); absent until stamped. */
+  since?: number
 }
 
-export type NavigatorBlocker = { step: string; reason: string }
+export type NavigatorBlocker = { step: string; reason: string; since?: number }
 
 export type NavigatorDecision = { question: string; context?: string; block?: string }
 
@@ -29,6 +31,14 @@ export type NavigatorBlock = {
 
 export type NavigatorSource = 'task' | 'todo' | 'tool'
 
+export type NavigatorEventKind = 'job_started' | 'step_done' | 'step_blocked' | 'step_unblocked' | 'decision_opened' | 'decision_closed' | 'block_done' | 'job_done'
+
+/** One line of the page's recent events. */
+export type NavigatorEvent = { at: number; kind: NavigatorEventKind; text: string }
+
+/** A subagent at work, as the page shows it. */
+export type NavigatorAgent = { description: string; type: string }
+
 export type NavigatorState = {
   isActive: boolean
   isOff: boolean
@@ -39,6 +49,10 @@ export type NavigatorState = {
   blockers: NavigatorBlocker[]
   decisions: NavigatorDecision[]
   blocks: NavigatorBlock[]
+  /** When the current job started (ms since the epoch). */
+  startedAt: number | null
+  /** The latest events, newest last, at most 10. */
+  events: NavigatorEvent[]
   revision: number
   publishedRevision: number
   url: string | null
@@ -46,6 +60,10 @@ export type NavigatorState = {
   publishCount: number
   lastPublishedAt: number | null
   error: string | null
+  /** Publishing was denied: no more attempts until /navigator publish. */
+  isPaused: boolean
+  /** Published paths of the screenshots already uploaded to the current address. */
+  uploaded: string[]
 }
 
 declare module 'claude-code' {

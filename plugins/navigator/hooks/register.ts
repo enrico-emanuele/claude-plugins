@@ -1,38 +1,51 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { NavigatorState } from '../types'
+import type { NavigatorAgent, NavigatorState } from '../types'
 import type { Config, Origin, ToolUpdate } from './logic'
 import {
   INITIAL_STATE,
+  asNewJob,
+  attentionEvents,
+  classifyFailure,
+  failureText,
+  hashName,
   isDirty,
   percent,
   publishReason,
   readConfig,
   withActivation,
+  withHistory,
   withTaskCreated,
   withTaskUpdated,
   withTodos,
   withToolUpdate,
 } from './logic'
-import { pageTitle, renderPage } from './page'
+import { MESSAGES } from './messages'
+import { MAX_SHOTS, pageTitle, renderPage } from './page'
 
 const state = atom({ plugin: 'navigator', key: 'state' } as const, INITIAL_STATE)
 
 const TOOL = 'update'
 const TOOL_NAME = 'mcp__navigator__update'
 const DELAY_MS = 1500
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024
+/** Inline (data URI) images in total: only for screenshots outside the project. */
+const MAX_INLINE_BYTES = 6 * 1024 * 1024
+/** One uploaded screenshot: the Artifact tool takes up to 15 MB per binary file. */
+const MAX_FILE_BYTES = 15 * 1024 * 1024
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 
 type $ = EngineInterface
 
+let options: Readonly<Record<string, unknown>> = {}
 let config: Config = readConfig({}, null)
 let timer: { cancel: () => void } | null = null
 let isPublishing = false
 let isPending = false
 
-// ------------------------------------------------------------ publishing
+const msg = () => MESSAGES[config.language]
+
+// ------------------------------------------------------------ settings
 
 async function readOverride($: $): Promise<unknown> {
   try {
@@ -43,30 +56,70 @@ async function readOverride($: $): Promise<unknown> {
   }
 }
 
-async function loadImages($: $, s: NavigatorState, root: string) {
-  const out: Record<string, string | null> = {}
+/** Reads the settings again, so an edit to .claude/navigator.json counts without a new session. */
+async function refreshConfig($: $) {
+  config = readConfig(options, await readOverride($))
+}
+
+// ------------------------------------------------------------ publishing
+
+type Images = {
+  /** screenshot path → what the page loads */
+  images: Record<string, string | null>
+  /** every screenshot file the page needs: published path → source */
+  files: Record<string, string>
+}
+
+/**
+ * Screenshots inside the project go up once as files next to the page, named
+ * by path and modification time, so a republish sends only new ones. Those
+ * outside it (the Artifact tool only takes files from the project) are inlined.
+ */
+async function prepareImages($: $, s: NavigatorState, root: string): Promise<Images> {
+  const out: Images = { images: {}, files: {} }
   if (!config.sections.screenshots) return out
-  let total = 0
-  const paths = s.blocks.flatMap(b => (b.screenshots ?? []).slice(-4).map(x => x.path))
+  let inline = 0
+  const paths = s.blocks.flatMap(b => (b.screenshots ?? []).slice(-MAX_SHOTS).map(x => x.path))
   for (const path of paths) {
-    const mime = MIME[path.split('.').pop()?.toLowerCase() ?? '']
-    if (!mime) { out[path] = null; continue }
+    if (path in out.images) continue
+    const ext = path.split('.').pop()?.toLowerCase() ?? ''
+    const mime = MIME[ext]
+    if (!mime) { out.images[path] = null; continue }
     try {
       const absolute = path.startsWith('/') ? path : `${root}/${path}`
+      const stat = await $.fs.stat(absolute)
+      if (stat.kind !== 'file') { out.images[path] = null; continue }
+      if (absolute.startsWith(`${root}/`) && !absolute.includes('/../')) {
+        if (stat.size > MAX_FILE_BYTES) { out.images[path] = null; continue }
+        const name = `shots/${hashName(`${absolute}|${stat.mtimeMs}`)}.${ext}`
+        out.images[path] = name
+        out.files[name] = absolute
+        continue
+      }
       const { base64 } = await $.fs.read(absolute, { as: 'bytes' })
-      total += base64.length
-      out[path] = total > MAX_IMAGE_BYTES ? null : `data:${mime};base64,${base64}`
+      inline += base64.length
+      out.images[path] = inline > MAX_INLINE_BYTES ? null : `data:${mime};base64,${base64}`
     } catch {
-      out[path] = null
+      out.images[path] = null
     }
   }
   return out
 }
 
+async function listAgents($: $): Promise<NavigatorAgent[]> {
+  if (!config.detail.agents) return []
+  try {
+    const all = await $.agent.list()
+    return all
+      .filter(a => a.status === 'running' || a.status === 'pending' || a.status === 'waiting')
+      .map(a => ({ description: a.description, type: a.type }))
+  } catch {
+    return []
+  }
+}
+
 async function announceLink($: $, url: string, isFirst: boolean) {
-  const text = isFirst
-    ? `Navigator published: ${url}`
-    : `Navigator has a new address: ${url}`
+  const text = isFirst ? msg().published(url) : msg().newAddress(url)
   $.ui.toast(text, { timeoutMs: 10000 })
   await $.session.append({ message: { type: 'system', content: [{ type: 'text', text }] } })
   await $.session.append({
@@ -74,7 +127,7 @@ async function announceLink($: $, url: string, isFirst: boolean) {
       type: 'user',
       content: [{
         type: 'text',
-        text: `[navigator plugin] ${text}. Give the user this link in your next message, once; no need to repeat it after that. The plugin republishes it at the same address on its own.`,
+        text: `[navigator plugin] ${isFirst ? 'Navigator published' : 'Navigator has a new address'}: ${url}. Give the user this link in your next message, once; no need to repeat it after that. The plugin republishes it at the same address on its own.`,
       }],
     },
   })
@@ -83,8 +136,9 @@ async function announceLink($: $, url: string, isFirst: boolean) {
 async function publish($: $): Promise<void> {
   timer = null
   if (isPublishing) { isPending = true; return }
+  await refreshConfig($)
   const s = await read($, state)
-  if (!s.isActive || s.isOff) return
+  if (!s.isActive || s.isOff || s.isPaused || !config.isEnabled) return
   isPublishing = true
   try {
     const root = await $.session.root()
@@ -94,15 +148,16 @@ async function publish($: $): Promise<void> {
     const project = root.split('/').filter(Boolean).pop() ?? 'project'
     const now = await $.clock.now()
     if (!(await $.fs.exists(`${folder}/.gitignore`))) await $.fs.write(`${folder}/.gitignore`, '*\n')
+    const { images, files } = await prepareImages($, s, root)
     const html = renderPage({
-      state: s, config, project, now, number: s.publishCount + 1,
-      images: await loadImages($, s, root),
+      state: s, config, project, now, number: s.publishCount + 1, images,
+      agents: await listAgents($),
     })
     await $.fs.write(file, html)
 
     const tools = await $.tool.list()
     if (!tools.some(t => t.name === 'Artifact')) {
-      if (s.file !== file) $.ui.toast(`Navigator saved locally (Artifact not available): ${file}`, { timeoutMs: 10000 })
+      if (s.file !== file) $.ui.toast(msg().savedLocally(file), { timeoutMs: 10000 })
       await update($, state, x => ({ ...x, file, publishedRevision: s.revision, error: 'Artifact is not available in this session' }))
       return
     }
@@ -113,30 +168,50 @@ async function publish($: $): Promise<void> {
       file_path: file,
       description: `Progress of "${pageTitle(s, project).replace(/^Navigator /, '')}": steps, blocks and open decisions.`,
     }
-    let result = await $.tool.call(s.url ? { ...base, url: s.url } : { ...base, icon: 'chart' })
-    if (s.url && (result.deny !== undefined || result.isError === true)) {
-      // The old address cannot be updated (resumed session, deleted artifact): open a new one.
-      result = await $.tool.call({ ...base, icon: 'chart' })
+    const withFiles = (f: Record<string, string>) => (Object.keys(f).length > 0 ? { files: f } : {})
+    const fresh = () => $.tool.call({ ...base, icon: 'chart', ...withFiles(files) })
+    let url = s.url
+    let uploaded = s.uploaded
+    let result
+    if (s.url) {
+      const missing = Object.fromEntries(Object.entries(files).filter(([k]) => !s.uploaded.includes(k)))
+      result = await $.tool.call({ ...base, url: s.url, ...withFiles(missing) })
+      if (result.deny === undefined && result.isError === true && classifyFailure(result) === 'gone') {
+        // The old address cannot be updated (resumed session, deleted artifact): open a new one.
+        url = null
+        uploaded = []
+        result = await fresh()
+      }
+    } else {
+      result = await fresh()
     }
-    if (result.deny !== undefined || result.isError === true) {
-      const reason = (result.deny ?? result.text ?? 'unknown error').slice(0, 300)
-      $.ui.toast(`Navigator: publishing failed. ${reason}`, { timeoutMs: 8000 })
+    if (result.deny !== undefined) {
+      // Asking again would only bring the same question back on every turn.
+      $.ui.toast(msg().paused, { timeoutMs: 10000 })
+      await update($, state, x => ({ ...x, file, isPaused: true, error: result.deny.slice(0, 300) }))
+      return
+    }
+    if (result.isError === true) {
+      const reason = failureText(result).slice(0, 300)
+      $.ui.toast(msg().failed(reason), { timeoutMs: 8000 })
       await update($, state, x => ({ ...x, file, error: reason }))
       return
     }
     const record = result.result as { url?: unknown } | undefined
-    const url = typeof record?.url === 'string'
+    const newUrl = typeof record?.url === 'string'
       ? record.url
-      : /https:\/\/claude\.ai\/\S*artifact\/[\w-]+/.exec(result.text ?? '')?.[0] ?? s.url
+      : /https:\/\/claude\.ai\/\S*artifact\/[\w-]+/.exec(result.text ?? '')?.[0] ?? url
+    const sent = Object.keys(files)
     await update($, state, x => ({
-      ...x, url, file, error: null,
+      ...x, url: newUrl, file, error: null,
       publishCount: x.publishCount + 1,
       lastPublishedAt: now,
       publishedRevision: s.revision,
+      uploaded: newUrl === s.url ? [...new Set([...uploaded, ...sent])] : sent,
     }))
-    if (url && url !== s.url) {
-      await $.store.set(`url:${session}`, url)
-      await announceLink($, url, s.url === null)
+    if (newUrl && newUrl !== s.url) {
+      await $.store.set(`url:${session}`, newUrl)
+      await announceLink($, newUrl, s.url === null)
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
@@ -156,16 +231,35 @@ function schedule($: $, ms: number) {
   timer = $.clock.after(ms, () => { void publish($) })
 }
 
+/** A push notification (the phone, when the app is linked) for what needs the user. */
+async function notify($: $, before: NavigatorState, after: NavigatorState) {
+  if (!config.notify || !after.isActive || after.isOff) return
+  const news = attentionEvents(before, after)
+  if (news.length === 0) return
+  try {
+    const tools = await $.tool.list()
+    if (!tools.some(t => t.name === 'PushNotification')) return
+    const first = news[0]!
+    const text = first.kind === 'step_blocked' ? msg().notifyBlocked(first.text) : msg().notifyDecision(first.text)
+    const more = news.length > 1 ? ` (+${news.length - 1})` : ''
+    await $.tool.call({ tool: 'PushNotification', message: `${text}${more}`.slice(0, 190), status: 'proactive' })
+  } catch {
+    // A notification that does not go out is not worth a failed hook.
+  }
+}
+
 /** Applies a state change and schedules a publish when the cadence asks for one. */
 async function change($: $, fn: (s: NavigatorState) => NavigatorState, origin: Origin) {
+  const now = await $.clock.now()
   let before = INITIAL_STATE
   let after = INITIAL_STATE
   await update($, state, s => {
     before = s
-    after = withActivation(fn(s), config)
+    after = withHistory(s, withActivation(fn(s), config), now)
     return after
   })
-  if (publishReason(before, after, config.cadence, origin) !== null) schedule($, DELAY_MS)
+  if (publishReason(before, after, config.cadence, origin) !== null && !after.isPaused) schedule($, DELAY_MS)
+  await notify($, before, after)
   return after
 }
 
@@ -213,7 +307,7 @@ function toolSchema() {
   if (config.sections.screenshots) {
     block.screenshots = {
       type: 'array',
-      description: 'Screenshots already saved to files (PNG/JPG/WebP), absolute path or relative to the project. The page shows the last 4.',
+      description: 'Screenshots already saved to files (PNG/JPG/WebP), absolute path or relative to the project. The page shows the last 8.',
       items: { type: 'object', properties: { path: { type: 'string' }, caption: { type: 'string' } }, required: ['path'] },
     }
   }
@@ -258,17 +352,18 @@ function toolSchema() {
   }
 }
 
-export const register: Register = (on, options) => {
+export const register: Register = (on, userOptions) => {
+  options = userOptions
   config = readConfig(options, null)
 
   // ------------------------------------------------------------ session
 
   on('session.start', async ($, e, next) => {
-    config = readConfig(options, await readOverride($))
+    await refreshConfig($)
     await $.command.register({
       name: 'navigator',
-      description: 'Navigator: state and link; "publish" creates or updates the page now, "off"/"on" for this session.',
-      argumentHint: '[publish | off | on]',
+      description: 'Navigator: state and link; "publish" creates or updates the page now, "link" gives the link, "reset" starts a new job, "off"/"on" for this session.',
+      argumentHint: '[publish | link | reset | off | on]',
     })
     if (config.isEnabled) {
       await $.tool.register({
@@ -278,6 +373,8 @@ export const register: Register = (on, options) => {
         isDeferred: false,
       })
     }
+    // A state saved by an older version (plugin updated mid-session) gets the new fields.
+    await update($, state, x => ({ ...INITIAL_STATE, ...x }))
     const s = await read($, state)
     if (s.url === null) {
       const saved = await $.store.get(`url:${await $.session.id()}`)
@@ -334,7 +431,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       const s = await read($, state)
-      if (s.isActive && !s.isOff && isDirty(s)) schedule($, 0)
+      // What the cadence left unpublished goes out now; a failed publish is retried either way.
+      const isDue = config.publishAtTurnEnd || s.error !== null
+      if (s.isActive && !s.isOff && !s.isPaused && isDirty(s) && isDue) schedule($, 0)
     }
     return next(e)
   })
@@ -342,34 +441,46 @@ export const register: Register = (on, options) => {
   // ------------------------------------------------------------ /navigator
 
   on('command.run', { command: 'navigator' }, async ($, e) => {
+    await refreshConfig($)
+    const m = msg()
     const arg = e.args.trim().toLowerCase()
     if (arg === 'off') {
       await update($, state, s => ({ ...s, isOff: true }))
       timer?.cancel()
       timer = null
-      return { text: 'Navigator is off for this session. "/navigator on" turns it back on.' }
+      return { text: m.off }
     }
     if (arg === 'on') {
-      await change($, s => ({ ...s, isOff: false }), 'list')
-      return { text: 'Navigator is back on for this session.' }
+      await change($, s => ({ ...s, isOff: false, isPaused: false }), 'list')
+      return { text: m.on }
     }
     if (arg === 'publish') {
-      if (!config.isEnabled) return { text: 'Navigator is disabled in the settings ("enabled" option or .claude/navigator.json).' }
-      await change($, s => ({ ...s, isForced: true, isOff: false }), 'list')
+      if (!config.isEnabled) return { text: m.disabled }
+      await change($, s => ({ ...s, isForced: true, isOff: false, isPaused: false }), 'list')
       timer?.cancel()
       timer = null
       schedule($, 0)
-      return { text: 'Publishing navigator now.' }
+      return { text: m.publishing }
     }
+    if (arg === 'link') {
+      const s = await read($, state)
+      return { text: s.url ? s.url : s.file ? m.localFile(s.file) : m.noLink }
+    }
+    if (arg === 'reset') {
+      await change($, s => ({ ...asNewJob(s), revision: s.revision + 1 }), 'list')
+      return { text: m.reset }
+    }
+    if (arg !== '') return { text: m.usage }
     const s = await read($, state)
     const lines = [
-      !config.isEnabled ? 'Disabled in the settings.'
-        : s.isOff ? 'Off for this session.'
-        : s.isActive ? `Active: ${percent(s.steps)}% (${s.steps.filter(p => p.status === 'done').length}/${s.steps.length} steps).`
-        : `Waiting: starts at ${config.threshold} steps (now ${s.steps.length}).`,
-      s.url ? `Link: ${s.url}` : s.file ? `Local file: ${s.file}` : 'Not published yet.',
-      `Cadence: ${config.cadence}.`,
-      s.error ? `Last error: ${s.error}` : '',
+      !config.isEnabled ? m.stateDisabled
+        : s.isOff ? m.stateOff
+        : s.isPaused ? m.statePaused
+        : s.isActive ? m.stateActive(percent(s.steps), s.steps.filter(p => p.status === 'done').length, s.steps.length)
+        : m.stateWaiting(config.threshold, s.steps.length),
+      s.url ? m.link(s.url) : s.file ? m.localFile(s.file) : m.noLink,
+      m.cadence(config.cadence, config.publishAtTurnEnd),
+      s.error ? m.lastError(s.error) : '',
     ].filter(Boolean)
     return { text: lines.join('\n') }
   })
