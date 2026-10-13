@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "description": "On long jobs, publishes an HTML progress page on its own, always at the same address.",
   "author": {
-    "name": "Logix"
+    "name": "Enrico Emanuele"
   },
   "types": "./types/index.d.ts",
   "userConfig": {
