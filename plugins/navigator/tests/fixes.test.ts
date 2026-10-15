@@ -5,8 +5,10 @@ import type { CommandRunInput, On, TurnCompleteInput } from 'claude-code'
 import {
   INITIAL_STATE,
   attentionEvents,
+  isWaitingAtTurnEnd,
   classifyFailure,
   publishReason,
+  questionOf,
   readConfig,
   withActivation,
   withHistory,
@@ -14,6 +16,8 @@ import {
   withTaskUpdated,
   withTodos,
   withToolUpdate,
+  withWaiting,
+  withoutWaiting,
 } from '../hooks/logic'
 import type { Config } from '../hooks/logic'
 import { duration, renderPage } from '../hooks/page'
@@ -176,7 +180,9 @@ describe('publishing failures', () => {
 
 type Reply = { url?: string; deny?: string; error?: string }
 
-function world(on: On, opts: { files?: Record<string, string>; bytes?: Record<string, string>; push?: string[] } = {}) {
+type Agent = { id: string; description: string; type: string; status: string }
+
+function world(on: On, opts: { files?: Record<string, string>; bytes?: Record<string, string>; push?: string[]; agents?: Agent[] } = {}) {
   const written: Record<string, string> = { ...opts.files }
   const publishes: Record<string, unknown>[] = []
   const replies: Reply[] = []
@@ -190,11 +196,12 @@ function world(on: On, opts: { files?: Record<string, string>; bytes?: Record<st
     ? { value: { base64: opts.bytes[e.path]! } }
     : e.path in written ? { value: written[e.path]! } : { deny: 'ENOENT' }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('ui.toast', () => ({ value: undefined }))
   on('fs.stat', ($, e) => (e.path in written
     ? { value: { kind: 'file' as const, size: written[e.path]!.length, mtimeMs: 7, isLink: false } }
     : { deny: 'ENOENT' }))
-  on('agent.list', () => ({ value: [] }))
+  on('agent.list', () => ({ value: (opts.agents ?? []) as never }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__navigator__${e.name}` } }))
   on('tool.list', () => ({ value: [{ name: 'Artifact', description: '', mcp: false }, { name: 'PushNotification', description: '', mcp: false }] }))
@@ -258,7 +265,7 @@ test('a temporary error keeps the address; a gone artifact gets a new one', asyn
   expect(w.publishes[1]!.url).toBe('https://claude.ai/code/artifact/abc-123')
   // Retried at the end of the turn, at the same address.
   await endTurn($)
-  await clock.advance(10)
+  await clock.advance(2000)
   expect(w.publishes).toHaveLength(3)
   expect(w.publishes[2]!.url).toBe('https://claude.ai/code/artifact/abc-123')
   w.replies.push({ error: 'Artifact not found' }, { url: 'https://claude.ai/code/artifact/new-1' })
@@ -273,7 +280,8 @@ test('publish_at_turn_end off: the end of a turn publishes only what the cadence
   const w = world(on)
   const clock = await start($, on)
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
-  await endTurn($)
+  // An interrupted turn leaves nobody waiting, so only the cadence decides.
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't', reason: 'aborted' } as TurnCompleteInput)
   await clock.advance(2000)
   expect(w.publishes).toHaveLength(1)
 })
@@ -331,4 +339,112 @@ test('an edit to .claude/navigator.json counts at the next publish', async ($, o
   await finish($, 1)
   await clock.advance(2000)
   expect(w.written['/project/.claude/navigator/session-1.html']).toContain('passi fatti')
+})
+
+// ------------------------------------------------------------ waiting for the user
+
+describe('waiting for the user', () => {
+  test('the question is the last sentence with a question mark, outside code', () => {
+    expect(questionOf('Done with the schema. Should I use **PostgreSQL 16** or stay on 14?')).toBe('Should I use PostgreSQL 16 or stay on 14?')
+    expect(questionOf('All done.')).toBe(null)
+    expect(questionOf('```js\nconst a = b ? c : d\n```\nTests pass.')).toBe(null)
+    expect(questionOf('Two options:\n- A\n- B\n\n**Which one do you prefer?** I recommend A.')).toBe('Which one do you prefer?')
+    expect(questionOf(`${'x'.repeat(300)}?`)!.length).toBe(240)
+  })
+
+  test('a wait keeps its start; ending it bumps the revision once', () => {
+    const s = { ...INITIAL_STATE, isActive: true }
+    const a = withWaiting(s, 'Which one?', 1000)
+    expect(a.waiting).toEqual({ since: 1000, question: 'Which one?' })
+    expect(withWaiting(a, 'Which one?', 5000)).toBe(a)
+    expect(withWaiting(a, 'And now?', 5000).waiting).toEqual({ since: 1000, question: 'And now?' })
+    const b = withoutWaiting(a)
+    expect(b.waiting).toBe(null)
+    expect(b.revision).toBe(a.revision + 1)
+    expect(withoutWaiting(b)).toBe(b)
+  })
+
+  test('the start and the end of a wait publish at every cadence', () => {
+    const s = withActivation(finished(5), CONFIG)
+    const w = withWaiting(s, null, 1)
+    expect(publishReason(s, w, 'block-done', 'list')).toBe('waiting')
+    expect(publishReason(w, withoutWaiting(w), 'block-done', 'list')).toBe('waiting over')
+  })
+
+  test('which turn ends leave Claude waiting', () => {
+    const working = withActivation(withTaskCreated(INITIAL_STATE, '1', 'Step'), { ...CONFIG, threshold: 1 })
+    const done = withActivation(finished(5), CONFIG)
+    const turn = { reason: 'answer', hasAgentsAtWork: false, question: null }
+    expect(isWaitingAtTurnEnd(working, turn)).toBe(true)
+    expect(isWaitingAtTurnEnd(working, { ...turn, reason: 'aborted' })).toBe(false)
+    expect(isWaitingAtTurnEnd(working, { ...turn, hasAgentsAtWork: true })).toBe(false)
+    expect(isWaitingAtTurnEnd(done, turn)).toBe(false)
+    expect(isWaitingAtTurnEnd(done, { ...turn, question: 'Merge it?' })).toBe(true)
+    expect(isWaitingAtTurnEnd(INITIAL_STATE, turn)).toBe(false)
+  })
+
+  test('the page shows the band and marks the tab title', () => {
+    const s = { ...finished(5), waiting: { since: 6 * 60_000, question: 'Merge <it>?' } }
+    const html = page(s)
+    expect(html).toContain('class="wait"')
+    expect(html).toContain('Waiting for your reply')
+    expect(html).toContain('Merge &lt;it&gt;?')
+    expect(html).toContain('<time data-since="360000">4 min</time>')
+    expect(html).toMatch(/<title>⏸ Waiting · Navigator /)
+    const it = page(s, { config: { ...CONFIG, language: 'it' } })
+    expect(it).toContain('In attesa della tua risposta')
+    expect(it).toMatch(/<title>⏸ In attesa · /)
+    const none = page(finished(5))
+    expect(none).not.toContain('class="wait"')
+    expect(none).not.toContain('⏸')
+  })
+
+  test('a custom colour for the band', () => {
+    const html = page(finished(5), { config: { ...CONFIG, colors: { ...CONFIG.colors, waiting: '#0b6e4f' } } })
+    expect(html).toContain('--wait: #0b6e4f;')
+  })
+})
+
+const html = (w: { written: Record<string, string> }) => w.written['/project/.claude/navigator/session-1.html']!
+
+test('the end of a turn shows the band with the question; the next turn takes it away', async ($, on) => {
+  const w = world(on)
+  const clock = await start($, on)
+  await $.turn.complete({ answer: 'Schema ready. Should I use PostgreSQL 16?', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as TurnCompleteInput)
+  await clock.advance(2000)
+  expect(w.publishes).toHaveLength(2)
+  expect(html(w)).toContain('Should I use PostgreSQL 16?')
+  expect(html(w)).toContain('class="wait"')
+  await $.turn.start({ text: '16', turnId: 't2' })
+  await clock.advance(2000)
+  expect(w.publishes).toHaveLength(3)
+  expect(html(w)).not.toContain('class="wait"')
+})
+
+test('no band while a subagent is still at work', async ($, on) => {
+  const w = world(on, { agents: [{ id: 'a1', description: 'Run the tests', type: 'general-purpose', status: 'running' }] })
+  const clock = await start($, on)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(html(w)).not.toContain('class="wait"')
+})
+
+test('AskUserQuestion shows the band while the dialog is open', async ($, on) => {
+  const w = world(on)
+  let answer = () => {}
+  on('tool.call', { tool: 'AskUserQuestion' }, () => new Promise(r => { answer = () => r({ result: { answers: {} } as never }) }))
+  const clock = await start($, on)
+  const pending = $.tool.call({
+    tool: 'AskUserQuestion',
+    questions: [
+      { question: 'Which database?', header: 'DB', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] },
+      { question: 'Which region?', header: 'Region', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] },
+    ],
+  })
+  await clock.advance(2000)
+  expect(html(w)).toContain('Which database? (+1)')
+  answer()
+  await pending
+  await clock.advance(2000)
+  expect(html(w)).not.toContain('class="wait"')
 })

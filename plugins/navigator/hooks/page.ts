@@ -46,6 +46,8 @@ const TEXTS = {
     elapsed: 'running for',
     since: 'for',
     agents: (n: number) => (n === 1 ? '1 agent at work' : `${n} agents at work`),
+    waiting: 'Waiting for your reply',
+    waitingTab: 'Waiting',
     events: 'Recent events',
     eventKind: {
       job_started: 'Job started', step_done: 'Step done', step_blocked: 'Step blocked', step_unblocked: 'Step unblocked',
@@ -81,6 +83,8 @@ const TEXTS = {
     elapsed: 'in corso da',
     since: 'da',
     agents: (n: number) => (n === 1 ? '1 agente al lavoro' : `${n} agenti al lavoro`),
+    waiting: 'In attesa della tua risposta',
+    waitingTab: 'In attesa',
     events: 'Ultimi eventi',
     eventKind: {
       job_started: 'Lavoro iniziato', step_done: 'Passo fatto', step_blocked: 'Passo fermo', step_unblocked: 'Passo sbloccato',
@@ -101,22 +105,22 @@ type Palette = Record<ColorKey | 'muted' | 'line', string>
 
 const THEMES: Record<Theme, { light: Palette; dark: Palette }> = {
   standard: {
-    light: { background: '#f3f5f8', surface: '#ffffff', text: '#15202b', muted: '#5a6776', line: '#dbe1e8', accent: '#1d5fc4', done: '#17794a', in_progress: '#a86300', blocked: '#b3261e', todo: '#7b8794', attention: '#b3261e' },
-    dark: { background: '#0e1319', surface: '#151c25', text: '#e5eaf0', muted: '#98a5b4', line: '#253141', accent: '#7eb0ff', done: '#4fc58b', in_progress: '#f0b04a', blocked: '#ff7d74', todo: '#7f8c9a', attention: '#ff7d74' },
+    light: { background: '#f3f5f8', surface: '#ffffff', text: '#15202b', muted: '#5a6776', line: '#dbe1e8', accent: '#1d5fc4', done: '#17794a', in_progress: '#a86300', blocked: '#b3261e', todo: '#7b8794', attention: '#b3261e', waiting: '#6a3fc1' },
+    dark: { background: '#0e1319', surface: '#151c25', text: '#e5eaf0', muted: '#98a5b4', line: '#253141', accent: '#7eb0ff', done: '#4fc58b', in_progress: '#f0b04a', blocked: '#ff7d74', todo: '#7f8c9a', attention: '#ff7d74', waiting: '#b79bff' },
   },
   'high-contrast': {
-    light: { background: '#ffffff', surface: '#ffffff', text: '#000000', muted: '#333333', line: '#1a1a1a', accent: '#0040c0', done: '#006b2e', in_progress: '#8a4b00', blocked: '#a00000', todo: '#444444', attention: '#a00000' },
-    dark: { background: '#000000', surface: '#0a0a0a', text: '#ffffff', muted: '#d0d0d0', line: '#bdbdbd', accent: '#8cb4ff', done: '#5be39a', in_progress: '#ffc35c', blocked: '#ff8a80', todo: '#c4c4c4', attention: '#ff8a80' },
+    light: { background: '#ffffff', surface: '#ffffff', text: '#000000', muted: '#333333', line: '#1a1a1a', accent: '#0040c0', done: '#006b2e', in_progress: '#8a4b00', blocked: '#a00000', todo: '#444444', attention: '#a00000', waiting: '#5a1fb0' },
+    dark: { background: '#000000', surface: '#0a0a0a', text: '#ffffff', muted: '#d0d0d0', line: '#bdbdbd', accent: '#8cb4ff', done: '#5be39a', in_progress: '#ffc35c', blocked: '#ff8a80', todo: '#c4c4c4', attention: '#ff8a80', waiting: '#cdb0ff' },
   },
   muted: {
-    light: { background: '#f6f5f2', surface: '#fffefb', text: '#2b2d31', muted: '#6e6f73', line: '#e4e1da', accent: '#4f6d8f', done: '#4f8a6b', in_progress: '#a8843a', blocked: '#b0605a', todo: '#999999', attention: '#b0605a' },
-    dark: { background: '#1a1b1d', surface: '#222326', text: '#e7e5e0', muted: '#a3a19c', line: '#34353a', accent: '#9db5d1', done: '#86c2a0', in_progress: '#d9b673', blocked: '#e0948d', todo: '#8b8b8b', attention: '#e0948d' },
+    light: { background: '#f6f5f2', surface: '#fffefb', text: '#2b2d31', muted: '#6e6f73', line: '#e4e1da', accent: '#4f6d8f', done: '#4f8a6b', in_progress: '#a8843a', blocked: '#b0605a', todo: '#999999', attention: '#b0605a', waiting: '#7a62a8' },
+    dark: { background: '#1a1b1d', surface: '#222326', text: '#e7e5e0', muted: '#a3a19c', line: '#34353a', accent: '#9db5d1', done: '#86c2a0', in_progress: '#d9b673', blocked: '#e0948d', todo: '#8b8b8b', attention: '#e0948d', waiting: '#b8a6dc' },
   },
 }
 
 const CSS_VAR: Record<keyof Palette, string> = {
   background: '--bg', surface: '--surface', text: '--ink', muted: '--muted', line: '--line', accent: '--accent',
-  done: '--ok', in_progress: '--run', blocked: '--stop', todo: '--todo', attention: '--attn',
+  done: '--ok', in_progress: '--run', blocked: '--stop', todo: '--todo', attention: '--attn', waiting: '--wait',
 }
 
 /** The chosen theme with the custom colours on top; those apply to light and dark alike. */
@@ -284,6 +288,18 @@ ${blocked ? `<div><h3>${t.blocked} <span class="num">${blockers.length}</span></
 </section>`
 }
 
+/** Claude stopped and waits for the user: a band across the top of the page. */
+function waitingBand(c: Ctx): string {
+  const w = c.s.waiting
+  if (!w) return ''
+  const since = w.since <= c.d.now
+    ? `<span class="wait-since">${esc(c.t.since)} <time data-since="${w.since}">${duration(c.d.now - w.since, c.t.units)}</time></span>`
+    : ''
+  return `<div class="wait" role="status"><div class="wait-in">
+<span class="wait-dot" aria-hidden="true"></span><strong>${c.t.waiting}</strong>${w.question ? `<span class="wait-q">${esc(w.question)}</span>` : ''}${since}
+</div></div>`
+}
+
 function agentsSection(c: Ctx): string {
   const agents = c.d.agents ?? []
   if (!c.d.config.detail.agents || agents.length === 0) return ''
@@ -325,7 +341,9 @@ export function renderPage(d: PageData): string {
     : ''
   const dark = cssVars(d.config, true)
 
-  return `<title>${esc(pageTitle(s, d.project))}</title>
+  const tab = s.waiting ? `⏸ ${t.waitingTab} · ${pageTitle(s, d.project)}` : pageTitle(s, d.project)
+
+  return `<title>${esc(tab)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -413,9 +431,18 @@ figcaption { font-size: .8rem; color: var(--muted); overflow-wrap: anywhere }
 .events .k-step_blocked, .events .k-decision_opened { color: var(--attn) }
 .events .what { min-width: 0; overflow-wrap: anywhere }
 .foot { color: var(--muted); font-size: .8rem }
+.wait { background: var(--wait); color: var(--surface) }
+.wait-in { max-width: 68rem; margin: 0 auto; padding-inline: 16px; padding-block: .8rem; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .8rem }
+.wait strong { font-size: 1rem }
+.wait-q { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; font-size: .92rem; opacity: .92 }
+.wait-since { font-family: var(--f-num); font-size: .8rem; opacity: .85; white-space: nowrap; margin-left: auto }
+.wait-dot { width: .65rem; height: .65rem; border-radius: 50%; background: currentColor; flex: none; position: relative }
+.wait-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; animation: wait-ping 1.8s ease-out infinite }
+@keyframes wait-ping { from { transform: scale(1); opacity: .6 } to { transform: scale(2.6); opacity: 0 } }
 @media (max-width: 30rem) { .events li { grid-template-columns: 4.5rem 1fr } .events .what { grid-column: 2 } .row { grid-template-columns: 1fr } .body { padding-left: 1.1rem } .bar.mini { width: 5rem } }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } .wait-dot::after { animation: none } }
 </style>
+${waitingBand(c)}
 <main class="page" lang="${d.config.language}">
 <header class="head">
 <span class="eyebrow">${t.eyebrow} · ${esc(d.project)}</span>

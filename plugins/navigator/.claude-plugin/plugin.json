@@ -1,6 +1,6 @@
 {
   "name": "navigator",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "On long jobs, publishes an HTML progress page on its own, always at the same address.",
   "author": {
     "name": "Enrico Emanuele"
@@ -115,6 +115,12 @@
       "type": "string",
       "title": "Colour: attention",
       "description": "The \"Needs you\" section, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
+      "default": ""
+    },
+    "color_waiting": {
+      "type": "string",
+      "title": "Colour: waiting",
+      "description": "The band shown while Claude waits for your reply, as hex (e.g. #1d5fc4). Empty = the theme's. Applies to the light and the dark version.",
       "default": ""
     },
     "section_requirements": {

@@ -23,6 +23,7 @@ Opzioni e istruzioni a Claude sono in inglese; la pagina pubblicata e i messaggi
 - **Dati extra.** Claude li passa con lo strumento `mcp__navigator__update`: passi fermi, decisioni, e per ogni blocco requisiti, test, PR e screenshot.
 - **Pubblicazione.** La fa il plugin, non Claude. La pagina è generata dal plugin con un formato fisso, scritta in `.claude/navigator/<sessione>.html` (cartella che si ignora da sola in git) e pubblicata con lo strumento Artifact. Gli screenshot dentro il progetto vengono caricati una volta come file accanto alla pagina, quindi una ripubblicazione manda solo quelli nuovi; quelli fuori dal progetto sono incorporati nella pagina. A fine turno, se c'è qualcosa di non pubblicato, il plugin ripubblica comunque (`publish_at_turn_end`).
 - **Errori.** Se la pubblicazione viene negata, navigator va in pausa e richiede solo con `/navigator publish`. Un errore temporaneo si riprova allo stesso indirizzo; solo un artifact che non esiste più o non è aggiornabile riceve un nuovo indirizzo, e il link viene rimandato.
+- **In attesa di te.** Quando Claude si ferma e aspetta una tua risposta (la fine di un turno con il piano ancora aperto e nessun sotto-agente al lavoro, una domanda alla fine di un lavoro finito, oppure una finestra `AskUserQuestion`), la pagina mostra in cima una fascia con la domanda e da quanto aspetta, e il titolo della scheda del browser comincia con «⏸ In attesa». La fascia sparisce quando Claude riprende a lavorare. Entrambi i cambi ripubblicano subito, qualunque sia la cadenza.
 - **Notifiche.** Un passo fermo o una decisione nuova mandano anche una notifica push, dove la sessione ha le notifiche (`notify`).
 
 ## Impostazioni
@@ -54,6 +55,7 @@ Opzioni del plugin (`/config`, oppure `pluginConfigs` nelle impostazioni).
 | `color_blocked` | tema | Stato «bloccato». |
 | `color_todo` | tema | Stato «da fare». |
 | `color_attention` | tema | Sezione «Serve da te». Se è impostato solo `color_blocked`, segue quello. |
+| `color_waiting` | tema | La fascia mostrata mentre Claude aspetta una tua risposta. |
 
 I colori sono esadecimali (`#1d5fc4`, `#fff`); vuoto vuol dire quello del tema. Un colore personalizzato vale per la versione chiara e per quella scura. Ogni altro valore viene ignorato.
 
@@ -93,7 +95,7 @@ I colori sono esadecimali (`#1d5fc4`, `#fff`); vuoto vuol dire quello del tema. 
 }
 ```
 
-Chiavi di `colors`: `background`, `surface`, `text`, `accent`, `done`, `in_progress`, `blocked`, `todo`, `attention`. Chiavi di `sections`: `requirements`, `tests`, `pr`, `screenshots`. Chiavi di `detail`: `done_steps`, `block_reasons`, `decision_context`, `status_counts`, `progress_bars`, `collapse_done_blocks`, `test_notes`, `times`, `events`, `agents`.
+Chiavi di `colors`: `background`, `surface`, `text`, `accent`, `done`, `in_progress`, `blocked`, `todo`, `attention`, `waiting`. Chiavi di `sections`: `requirements`, `tests`, `pr`, `screenshots`. Chiavi di `detail`: `done_steps`, `block_reasons`, `decision_context`, `status_counts`, `progress_bars`, `collapse_done_blocks`, `test_notes`, `times`, `events`, `agents`.
 
 Il file viene riletto prima di ogni pubblicazione, quindi una modifica vale senza aprire una nuova sessione (lo strumento dato a Claude, e i campi che ha, restano quelli fissati all'avvio della sessione).
 

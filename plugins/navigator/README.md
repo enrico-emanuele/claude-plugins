@@ -21,6 +21,7 @@ At a Claude Code prompt, in a terminal:
 - **Extra data.** Claude passes it through the `mcp__navigator__update` tool: blocked steps, decisions, and per block the requirements, tests, PR and screenshots.
 - **Publishing.** The plugin does it, not Claude. It renders the page in a fixed format, writes it to `.claude/navigator/<session>.html` (a folder that ignores itself in git) and publishes it with the Artifact tool. Screenshots inside the project go up once as files next to the page, so a republish sends only new ones; those outside the project are embedded in the page. At the end of a turn it republishes anything left unpublished (`publish_at_turn_end`).
 - **Failures.** If publishing is denied, navigator pauses and asks again only on `/navigator publish`. A temporary error is retried at the same address; only an artifact that no longer exists or cannot be updated gets a new address, and its link is sent again.
+- **Waiting for you.** When Claude stops and waits for your reply (the end of a turn with the plan still open and no subagent at work, a question at the end of a finished job, or an `AskUserQuestion` dialog), the page shows a band across the top with the question and how long it has been waiting, and the browser tab title starts with "⏸ Waiting". The band goes away when Claude starts working again. Both changes republish at once, whatever the cadence.
 - **Notifications.** A new blocked step or decision also sends a push notification, where the session has notifications (`notify`).
 
 ## Settings
@@ -52,6 +53,7 @@ Plugin options (`/config`, or `pluginConfigs` in the settings).
 | `color_blocked` | theme | "Blocked" state. |
 | `color_todo` | theme | "To do" state. |
 | `color_attention` | theme | The "Needs you" section. Follows `color_blocked` when only that one is set. |
+| `color_waiting` | theme | The band shown while Claude waits for your reply. |
 
 Colours are hex values (`#1d5fc4`, `#fff`); empty means the theme's. A custom colour applies to both the light and the dark version. Any other value is ignored.
 
@@ -91,7 +93,7 @@ Colours are hex values (`#1d5fc4`, `#fff`); empty means the theme's. A custom co
 }
 ```
 
-Keys of `colors`: `background`, `surface`, `text`, `accent`, `done`, `in_progress`, `blocked`, `todo`, `attention`. Keys of `sections`: `requirements`, `tests`, `pr`, `screenshots`. Keys of `detail`: `done_steps`, `block_reasons`, `decision_context`, `status_counts`, `progress_bars`, `collapse_done_blocks`, `test_notes`, `times`, `events`, `agents`.
+Keys of `colors`: `background`, `surface`, `text`, `accent`, `done`, `in_progress`, `blocked`, `todo`, `attention`, `waiting`. Keys of `sections`: `requirements`, `tests`, `pr`, `screenshots`. Keys of `detail`: `done_steps`, `block_reasons`, `decision_context`, `status_counts`, `progress_bars`, `collapse_done_blocks`, `test_notes`, `times`, `events`, `agents`.
 
 The file is read again before every publish, so an edit counts without a new session (the tool Claude is given, and which fields it has, are still set when the session starts).
 
