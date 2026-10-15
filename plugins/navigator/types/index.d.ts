@@ -36,6 +36,9 @@ export type NavigatorEventKind = 'job_started' | 'step_done' | 'step_blocked' | 
 /** One line of the page's recent events. */
 export type NavigatorEvent = { at: number; kind: NavigatorEventKind; text: string }
 
+/** Claude stopped and waits for the user: since when, and what it asked, when it asked something. */
+export type NavigatorWaiting = { since: number; question: string | null }
+
 /** A subagent at work, as the page shows it. */
 export type NavigatorAgent = { description: string; type: string }
 
@@ -64,6 +67,8 @@ export type NavigatorState = {
   isPaused: boolean
   /** Published paths of the screenshots already uploaded to the current address. */
   uploaded: string[]
+  /** Claude waits for the user: the page shows it in a band at the top. */
+  waiting: NavigatorWaiting | null
 }
 
 declare module 'claude-code' {

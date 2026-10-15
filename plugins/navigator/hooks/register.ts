@@ -11,8 +11,10 @@ import {
   failureText,
   hashName,
   isDirty,
+  isWaitingAtTurnEnd,
   percent,
   publishReason,
+  questionOf,
   readConfig,
   withActivation,
   withHistory,
@@ -20,6 +22,8 @@ import {
   withTaskUpdated,
   withTodos,
   withToolUpdate,
+  withWaiting,
+  withoutWaiting,
 } from './logic'
 import { MESSAGES } from './messages'
 import { MAX_SHOTS, pageTitle, renderPage } from './page'
@@ -115,6 +119,15 @@ async function listAgents($: $): Promise<NavigatorAgent[]> {
       .map(a => ({ description: a.description, type: a.type }))
   } catch {
     return []
+  }
+}
+
+/** Subagents still running: the session goes on without the user. */
+async function hasAgentsAtWork($: $): Promise<boolean> {
+  try {
+    return (await $.agent.list()).some(a => a.status === 'running' || a.status === 'pending')
+  } catch {
+    return false
   }
 }
 
@@ -426,10 +439,39 @@ export const register: Register = (on, userOptions) => {
     return { result: text }
   })
 
+  // ------------------------------------------------------------ waiting for the user
+
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    const s = await read($, state)
+    if (!s.isActive || s.isOff) return next(e)
+    const questions = e.questions.map(q => q.question.trim()).filter(Boolean)
+    const question = questions.length > 1 ? `${questions[0]} (+${questions.length - 1})` : questions[0] ?? null
+    const now = await $.clock.now()
+    await change($, x => withWaiting(x, question, now), 'list')
+    try {
+      return await next(e)
+    } finally {
+      await change($, withoutWaiting, 'list')
+    }
+  }).catch(($, e, next) => next(e))
+
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined && (await read($, state)).waiting !== null) await change($, withoutWaiting, 'list')
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   // ------------------------------------------------------------ end of turn
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
+      const before = await read($, state)
+      const question = questionOf(e.answer)
+      const turn = { reason: e.reason, question, hasAgentsAtWork: before.isActive ? await hasAgentsAtWork($) : false }
+      if (isWaitingAtTurnEnd(before, turn)) {
+        const now = await $.clock.now()
+        await change($, x => withWaiting(x, question, now), 'list')
+      }
       const s = await read($, state)
       // What the cadence left unpublished goes out now; a failed publish is retried either way.
       const isDue = config.publishAtTurnEnd || s.error !== null

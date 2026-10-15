@@ -9,6 +9,7 @@ import type {
   NavigatorState,
   NavigatorStep,
   NavigatorStepStatus,
+  NavigatorWaiting,
 } from '../types'
 
 export type Cadence = 'step-done' | 'every-change' | 'block-done'
@@ -21,7 +22,7 @@ export type Theme = 'standard' | 'high-contrast' | 'muted'
 
 export type ColorKey =
   | 'background' | 'surface' | 'text' | 'accent'
-  | 'done' | 'in_progress' | 'blocked' | 'todo' | 'attention'
+  | 'done' | 'in_progress' | 'blocked' | 'todo' | 'attention' | 'waiting'
 
 /** The page colours; null = the theme's. */
 export type Colors = Record<ColorKey, string | null>
@@ -56,7 +57,7 @@ export type Config = {
 }
 
 export const COLOR_KEYS: readonly ColorKey[] = [
-  'background', 'surface', 'text', 'accent', 'done', 'in_progress', 'blocked', 'todo', 'attention',
+  'background', 'surface', 'text', 'accent', 'done', 'in_progress', 'blocked', 'todo', 'attention', 'waiting',
 ]
 
 const CADENCES: readonly Cadence[] = ['step-done', 'every-change', 'block-done']
@@ -84,6 +85,7 @@ export const INITIAL_STATE: NavigatorState = {
   error: null,
   isPaused: false,
   uploaded: [],
+  waiting: null,
 }
 
 // ---------------------------------------------------------------- settings
@@ -429,6 +431,60 @@ export function attentionEvents(before: NavigatorState, after: NavigatorState): 
     (x.kind === 'step_blocked' || x.kind === 'decision_opened') && !known.has(`${x.at}|${x.kind}|${x.text}`))
 }
 
+// ---------------------------------------------------------------- waiting for the user
+
+/** The longest question the band shows. */
+export const MAX_QUESTION = 240
+
+const clip = (t: string) => (t.length > MAX_QUESTION ? `${t.slice(0, MAX_QUESTION - 1).trimEnd()}…` : t)
+
+/**
+ * The question a turn's answer ends on, for the band: the last sentence with a
+ * question mark, outside code, with markdown marks dropped. Null when the
+ * answer asks nothing.
+ */
+export function questionOf(answer: string): string | null {
+  const prose = answer.replace(/```[\s\S]*?(?:```|$)/g, '').replace(/`[^`\n]*`/g, m => m.slice(1, -1))
+  const line = prose.split('\n').map(x => x.trim()).filter(x => x.includes('?')).pop()
+  if (line === undefined) return null
+  const upTo = line.slice(0, line.lastIndexOf('?') + 1)
+  // The sentence the question mark closes: after the previous . ! or ? that ends a sentence.
+  const start = Math.max(...['. ', '! ', '? '].map(x => upTo.lastIndexOf(x, upTo.length - 2)).map(i => (i < 0 ? 0 : i + 2)))
+  const text = upTo.slice(start)
+    .replace(/^(?:[#>*+-]+\s+|\d+[.)]\s+)+/, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*|~~/g, '')
+    .replace(/(^|\s)[*_](\S[^*_]*?)[*_](?=\s|[?!.,;:]|$)/g, '$1$2')
+    .replace(/^[*_]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length > 1 ? clip(text) : null
+}
+
+/** Claude waits for the user. A wait already on keeps its start; the question is the latest. */
+export function withWaiting(s: NavigatorState, question: string | null, now: number): NavigatorState {
+  const waiting: NavigatorWaiting = { since: s.waiting?.since ?? now, question: question === null ? null : clip(question) }
+  if (s.waiting && s.waiting.question === waiting.question) return s
+  return withRevision(s, { waiting })
+}
+
+/** Claude is at work again. */
+export const withoutWaiting = (s: NavigatorState): NavigatorState =>
+  s.waiting === null ? s : withRevision(s, { waiting: null })
+
+/**
+ * Whether the end of a turn leaves Claude waiting for the user: the turn
+ * answered (not interrupted, not an error), no subagent is still at work, and
+ * the job is not over, unless the answer asks something.
+ */
+export function isWaitingAtTurnEnd(
+  s: NavigatorState,
+  turn: { reason: string; hasAgentsAtWork: boolean; question: string | null },
+): boolean {
+  if (!s.isActive || s.isOff || turn.reason !== 'answer' || turn.hasAgentsAtWork) return false
+  return !isFinished(s) || turn.question !== null
+}
+
 // ---------------------------------------------------------------- rules
 
 /** Starts once per session: at the threshold, or by hand with /navigator publish. */
@@ -465,6 +521,8 @@ export function publishReason(
   if (!after.isActive || after.isOff) return null
   if (!before.isActive) return 'activation'
   if (after.revision === before.revision) return null
+  if ((before.waiting === null) !== (after.waiting === null)) return after.waiting ? 'waiting' : 'waiting over'
+  if (after.waiting && before.waiting?.question !== after.waiting.question) return 'waiting'
   const newBlockers = after.blockers.some(f => !before.blockers.some(g => sameJson(f, g)))
   if (newBlockers) return 'step blocked'
   if (!sameJson(before.decisions, after.decisions) && after.decisions.length > 0) return 'decision'

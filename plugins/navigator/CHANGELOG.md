@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+**New**
+
+- When Claude stops and waits for your reply, the page shows a band across the top with the question and how long it has been waiting, and the browser tab title starts with "⏸ Waiting". It covers the end of a turn with the plan still open and no subagent at work, a question at the end of a finished job, and `AskUserQuestion` dialogs; the band goes away when Claude starts working again. Both changes republish at once, whatever the cadence. Option `color_waiting` for its colour.
+
 ## 0.4.0
 
 **Fixes**
